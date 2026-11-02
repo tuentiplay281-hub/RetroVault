@@ -6,7 +6,8 @@
 <b>100% gratis · sin anuncios · funciona sin internet</b></p>
 
 <p align="center"><a href="https://retrovault.retrovault.workers.dev">Página web</a> ·
-<a href="../../releases/latest">Descargar APK</a></p>
+<a href="../../releases/latest">Descargar APK</a> ·
+<a href="https://ko-fi.com/retrovaultapp">☕ Apoyar en Ko-fi</a></p>
 
 ---
 
@@ -54,4 +55,4 @@ RetroVault es un proyecto independiente, no afiliado a Nintendo, Sony, Sega, Ata
 
 ## Apoyar
 
-La app es y será siempre gratis. Si quieres apoyar el proyecto, en la [página web](https://retrovault.retrovault.workers.dev) está el enlace de donaciones. ❤
+La app es y será siempre gratis. Si quieres apoyar el proyecto: **[☕ ko-fi.com/retrovaultapp](https://ko-fi.com/retrovaultapp)** ❤ (nunca es obligatorio).
