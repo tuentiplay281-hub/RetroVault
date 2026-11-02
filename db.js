@@ -23,7 +23,8 @@ const SYSTEMS = {
 const NATIVE = { iso: "psp", cso: "psp", chd: "psp", pbp: "psp", elf: "psp", nds: "nds" };
 const EXT = { swf: "swf", nes: "nes", smc: "snes", sfc: "snes", gb: "gba", gbc: "gba", gba: "gba",
   md: "segaMD", gen: "segaMD", smd: "segaMD", sms: "segaMS", gg: "segaGG",
-  chd: "psx", pbp: "psx", n64: "n64", z64: "n64", v64: "n64", pce: "pce", a26: "atari2600", a78: "atari7800",
+  // .iso aquí es PS1; en el botón PSP/DS (NATIVE) es PSP
+  chd: "psx", pbp: "psx", iso: "psx", n64: "n64", z64: "n64", v64: "n64", pce: "pce", a26: "atari2600", a78: "atari7800",
   lnx: "lynx", ngp: "ngp", ngc: "ngp", ws: "ws", wsc: "ws" };
 // Extensiones que pueden ser de varias consolas: se pregunta al añadir (EmulatorJS descomprime .zip/.7z solo)
 const AMBIGUOUS = { zip: ["arcade", "psx", "nes", "snes", "gba", "segaMD", "n64"], "7z": ["psx", "nes", "snes", "gba", "segaMD", "n64"],

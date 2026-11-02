@@ -1,6 +1,6 @@
 // Guarda todo lo que se descarga (páginas, Ruffle, emuladores) para que funcione sin internet.
 // shortcut: cache-first means updates only arrive after bumping CACHE; bump it when any app file changes.
-const CACHE = "rv-v11";
+const CACHE = "rv-v12";
 self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("fetch", e => {
   if (e.request.method !== "GET" || !e.request.url.startsWith("http")) return;
