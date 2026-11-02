@@ -23,7 +23,35 @@ import android.webkit.WebViewClient;
 public class MainActivity extends Activity {
     // Origen https falso: Ruffle carga su .wasm con fetch(), que no funciona con file://
     static final String HOST = "appassets.local";
-    static final int PICK_PSP = 2, BACKUP_EXPORT = 3, BACKUP_IMPORT = 4;
+    static final int PICK_PSP = 2, BACKUP_EXPORT = 3, BACKUP_IMPORT = 4, PICK_FOLDER = 5;
+    // Solo se miran archivos con extensión de juego (la web confirma la consola por el contenido)
+    static final java.util.regex.Pattern GAME_EXT = java.util.regex.Pattern.compile(
+        "(?i)\\.(swf|nes|smc|sfc|gb|gbc|gba|md|gen|smd|sms|gg|chd|pbp|iso|cso|zso|bin|n64|z64|v64|pce|a26|a78|lnx|ngp|ngc|ws|wsc|zip|nds|elf)$");
+
+    // Recorre la carpeta elegida (hasta 6 niveles, 3000 archivos) y pasa a la web la lista de juegos encontrados
+    void scanTree(Uri tree) {
+        org.json.JSONArray out = new org.json.JSONArray();
+        try { walk(tree, android.provider.DocumentsContract.getTreeDocumentId(tree), 0, out); } catch (Exception e) { /* carpeta ya no accesible */ }
+        String js = "window.rvScanned&&rvScanned(" + JSONObject.quote(tree.toString()) + "," + out + ")";
+        runOnUiThread(() -> web.evaluateJavascript(js, null));
+    }
+
+    void walk(Uri tree, String docId, int depth, org.json.JSONArray out) throws Exception {
+        if (depth > 6 || out.length() >= 3000) return;
+        Uri children = android.provider.DocumentsContract.buildChildDocumentsUriUsingTree(tree, docId);
+        String[] cols = { android.provider.DocumentsContract.Document.COLUMN_DOCUMENT_ID, android.provider.DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+            android.provider.DocumentsContract.Document.COLUMN_MIME_TYPE, android.provider.DocumentsContract.Document.COLUMN_SIZE };
+        try (Cursor c = getContentResolver().query(children, cols, null, null, null)) {
+            while (c != null && c.moveToNext()) {
+                String id = c.getString(0), name = c.getString(1), mime = c.getString(2);
+                if (name == null || name.startsWith(".")) continue; // ocultos y del sistema
+                if (android.provider.DocumentsContract.Document.MIME_TYPE_DIR.equals(mime)) walk(tree, id, depth + 1, out);
+                else if (GAME_EXT.matcher(name).find())
+                    out.put(new JSONObject().put("uri", android.provider.DocumentsContract.buildDocumentUriUsingTree(tree, id).toString())
+                        .put("name", name).put("size", c.getLong(3)));
+            }
+        }
+    }
     String pendingBackup;
     WebView web;
     ValueCallback<Uri[]> pick;
@@ -91,6 +119,15 @@ public class MainActivity extends Activity {
                 startActivityForResult(new Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE)
                     .setType("*/*"), BACKUP_IMPORT);
             }
+
+            // Carpetas de juegos: el usuario elige una (permiso permanente) y la app la recorre buscando juegos
+            @JavascriptInterface
+            public void pickFolder() {
+                startActivityForResult(new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE), PICK_FOLDER);
+            }
+
+            @JavascriptInterface
+            public void rescan(String treeUri) { new Thread(() -> scanTree(Uri.parse(treeUri)), "scan").start(); }
 
             @JavascriptInterface
             public void pickNative() { // todos los juegos: permiso permanente; PSP/DS no se copian, el resto sí
@@ -271,6 +308,14 @@ public class MainActivity extends Activity {
         if (req == PICK_PSP) { if (res == RESULT_OK && data != null) onPspPicked(data); return; }
         if (req == BACKUP_EXPORT) { if (res == RESULT_OK && data != null && pendingBackup != null) writeBackup(data.getData()); else pendingBackup = null; return; }
         if (req == BACKUP_IMPORT) { if (res == RESULT_OK && data != null) readBackup(data.getData()); return; }
+        if (req == PICK_FOLDER) {
+            if (res == RESULT_OK && data != null && data.getData() != null) {
+                Uri tree = data.getData();
+                try { getContentResolver().takePersistableUriPermission(tree, Intent.FLAG_GRANT_READ_URI_PERMISSION); } catch (Exception e) { /* sin permiso permanente: solo esta vez */ }
+                web.evaluateJavascript("rvFolderPicked(" + JSONObject.quote(tree.toString()) + ")", null);
+            }
+            return;
+        }
         if (pick == null) return;
         Uri[] out = null;
         if (res == RESULT_OK && data != null) {

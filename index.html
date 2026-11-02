@@ -40,6 +40,7 @@
   <h1>Retro<span>Vault</span></h1>
   <!-- Un solo botón para todo: la consola se detecta sola por el contenido del archivo (detectSystem en db.js) -->
   <label id="add" class="btn">＋ Añadir juegos<input id="file" type="file" multiple hidden></label>
+  <button id="folder" class="btn alt" hidden aria-label="Añadir carpeta de juegos (se revisa sola)">📁</button>
   <button id="backup" class="btn alt" aria-label="Respaldo de partidas">💾</button>
   <button id="install" class="btn alt" hidden>⬇ Instalar</button>
 </header>
@@ -104,7 +105,13 @@
       a.querySelector(".pic").onclick = e => { e.preventDefault(); e.stopPropagation(); picFor = g; $("#picfile").click(); };
       a.querySelector(".del").onclick = async e => {
         e.preventDefault(); e.stopPropagation();
-        if (confirm(`¿Quitar "${g.name}" de la biblioteca?`)) { await games.del(g.id); render(); }
+        if (confirm(`¿Quitar "${g.name}" de la biblioteca?`)) {
+          await games.del(g.id);
+          // Recordarlo para que el escaneo de carpetas no lo vuelva a añadir
+          const ign = new Set(JSON.parse(localStorage.getItem("rvIgnored") || "[]")); ign.add(g.fileName.toLowerCase());
+          localStorage.setItem("rvIgnored", JSON.stringify([...ign]));
+          render();
+        }
       };
       return a;
     }));
@@ -128,8 +135,9 @@
 
   // --- Añadir juegos: un solo flujo; la consola se detecta por el contenido ---
   // uri: archivo del teléfono (app Android). PSP/DS se quedan donde están; el resto se copia a la biblioteca.
-  async function addGame(name, size, read, getBlob, uri) {
+  async function addGame(name, size, read, getBlob, uri, ask = true) {
     let sys = await detectSystem(name, size, read).catch(() => null);
+    if (!sys && !ask) return name + " (no reconocido)"; // escaneo de carpeta: sin preguntas, se informa al final
     if (!sys) { // sin firma reconocible (p. ej. .7z): solo entonces preguntar
       const opts = choicesOf(name) || Object.keys(SYSTEMS).filter(s => !NATIVE_SYSTEMS.has(s));
       const n = prompt(`No pude reconocer "${name}". ¿De qué consola es?\n` + opts.map((s, i) => `${i + 1}) ${SYSTEMS[s].name}`).join("\n"));
@@ -140,15 +148,20 @@
       if (!uri) return name + ` (${SYSTEMS[sys].name}: solo en la app Android)`;
       await games.addNative(uri, name, sys);
     } else await games.add(new File([await getBlob()], name), sys);
+    if (ask) { // añadido a mano: si estaba "ignorado" por el escaneo de carpetas, deja de estarlo
+      const ign = JSON.parse(localStorage.getItem("rvIgnored") || "[]").filter(n => n !== name.toLowerCase());
+      localStorage.setItem("rvIgnored", JSON.stringify(ign));
+    }
     return null;
   }
-  async function addMany(items) {
+  async function addMany(items, quiet = false) {
     $("#add").firstChild.textContent = "⏳ Añadiendo…";
     const bad = [];
     for (const it of items) { try { const err = await it(); if (err) bad.push(err); } catch (e) { bad.push(String(e)); } }
     $("#add").firstChild.textContent = "＋ Añadir juegos";
-    if (bad.length) alert("No se añadieron:\n" + bad.join("\n"));
+    if (bad.length && !quiet) alert("No se añadieron:\n" + bad.join("\n"));
     render();
+    return items.length - bad.length;
   }
 
   window.RV?.orientation("any"); // la biblioteca gira libremente (vertical u horizontal)
@@ -178,9 +191,33 @@
     // App Android: selector nativo (permiso permanente sobre cada archivo) y lectura por la app
     $("#add").onclick = e => { e.preventDefault(); RV.pickNative(); };
     const b64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
-    window.rvNativePicked = (uri, name, size) => addMany([() => addGame(name, size,
+    const fromPhone = (uri, name, size, ask) => () => addGame(name, size,
       async (o, n) => b64(RV.readBytes(uri, o, n)),
-      async () => (await fetch("/__content?u=" + encodeURIComponent(uri))).blob(), uri)]);
+      async () => (await fetch("/__content?u=" + encodeURIComponent(uri))).blob(), uri, ask);
+    window.rvNativePicked = (uri, name, size) => addMany([fromPhone(uri, name, size, true)]);
+
+    // --- Carpetas de juegos: se recuerdan y se revisan cada vez que se abre la app (solo se añaden los nuevos) ---
+    const folders = () => JSON.parse(localStorage.getItem("rvFolders") || "[]");
+    $("#folder").hidden = false;
+    $("#folder").onclick = () => RV.pickFolder();
+    window.rvFolderPicked = uri => {
+      if (!folders().includes(uri)) localStorage.setItem("rvFolders", JSON.stringify([...folders(), uri]));
+      $("#folder").textContent = "🔍"; RV.rescan(uri);
+      window.rvScanManual = true; // tras elegir carpeta, mostrar el resumen aunque no haya nada nuevo
+    };
+    let scanQueue = Promise.resolve(); // varias carpetas: procesarlas de una en una para no duplicar
+    window.rvScanned = (tree, files) => scanQueue = scanQueue.then(() => onScanned(tree, files)).catch(() => {});
+    const onScanned = async (tree, files) => {
+      // Ya en la biblioteca, o quitados a propósito por el usuario: no volver a añadirlos
+      const have = new Set([...(await games.all()).map(g => g.fileName.toLowerCase()), ...JSON.parse(localStorage.getItem("rvIgnored") || "[]")]);
+      const nuevos = files.filter(f => !have.has(f.name.toLowerCase()) && have.add(f.name.toLowerCase())); // también sin duplicados dentro
+      const added = await addMany(nuevos.map(f => fromPhone(f.uri, f.name, f.size, false)), true);
+      $("#folder").textContent = "📁";
+      if (added || window.rvScanManual) alert(`📁 Carpeta revisada: ${files.length} archivos de juego, ${added} nuevos añadidos.` +
+        (nuevos.length > added ? `\n${nuevos.length - added} no se reconocieron (p. ej. .bin sueltos de PS1 sin firma o .7z).` : ""));
+      window.rvScanManual = false;
+    };
+    folders().forEach(u => RV.rescan(u)); // revisión automática al abrir la app
   }
   $("#file").onchange = e => {
     const files = [...e.target.files]; e.target.value = "";

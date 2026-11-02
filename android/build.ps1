@@ -109,7 +109,7 @@ if (-not (Test-Path $KS)) {
 }
 Write-Host "Compilando RetroVault + PPSSPP..."
 Push-Location $PP
-Run .\gradlew.bat --no-daemon ":android:assembleNormalRelease" "-PRELEASE_STORE_FILE=$KS" "-PRELEASE_STORE_PASSWORD=jugarswf" "-PRELEASE_KEY_ALIAS=jugarswf" "-PRELEASE_KEY_PASSWORD=jugarswf" "-PANDROID_VERSION_CODE=8" "-PANDROID_VERSION_NAME=3.5"
+Run .\gradlew.bat --no-daemon ":android:assembleNormalRelease" "-PRELEASE_STORE_FILE=$KS" "-PRELEASE_STORE_PASSWORD=jugarswf" "-PRELEASE_KEY_ALIAS=jugarswf" "-PRELEASE_KEY_PASSWORD=jugarswf" "-PANDROID_VERSION_CODE=9" "-PANDROID_VERSION_NAME=3.6"
 Pop-Location
 $apk = Get-ChildItem "$PA\build\outputs\apk\normal\release\*.apk" | Sort-Object LastWriteTime | Select-Object -Last 1
 if (-not $apk) { throw "No se generó el APK" }
