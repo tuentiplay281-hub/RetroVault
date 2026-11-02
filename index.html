@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>RetroVault</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg">
+<meta name="theme-color" content="#14141c">
+<style>
+  body { margin: 0; min-height: 100vh; background: #14141c; color: #eee; font-family: sans-serif;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+  header { display: flex; align-items: center; gap: 10px; padding: 14px 16px; flex-wrap: wrap; }
+  h1 { margin: 0 auto 0 0; font-size: 26px; letter-spacing: 1px; }
+  h1 span { color: #3a7; }
+  .btn { padding: 12px 18px; border: 0; border-radius: 10px; font-size: 16px; color: #fff; background: #3a7; text-decoration: none; cursor: pointer; }
+  .btn.alt { background: #2d2d3a; }
+  #grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; padding: 0 16px 24px; }
+  .card { position: relative; border-radius: 12px; background: #22222e; overflow: hidden; text-decoration: none; color: #eee; }
+  .card .cover { height: 150px; display: flex; align-items: center; justify-content: center; font-size: 34px; font-weight: bold; color: #fff;
+    background-size: contain; background-position: center; background-repeat: no-repeat; }
+  .card .cover.img { background-color: #111118; font-size: 0; }
+  .card .pic { position: absolute; top: 6px; left: 6px; width: 32px; height: 32px; border: 0; border-radius: 50%;
+    background: rgba(0,0,0,.5); color: #fff; font-size: 15px; }
+  .card .name { padding: 10px; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .card .sys { padding: 0 10px 10px; font-size: 12px; opacity: .6; }
+  .card .del { position: absolute; top: 6px; right: 6px; width: 32px; height: 32px; border: 0; border-radius: 50%;
+    background: rgba(0,0,0,.5); color: #fff; font-size: 16px; }
+  #empty { padding: 30px 20px; text-align: center; opacity: .75; line-height: 1.6; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Retro<span>Vault</span></h1>
+  <label class="btn">＋ Añadir juegos<input id="file" type="file" multiple hidden
+    accept=".swf,.nes,.smc,.sfc,.gb,.gbc,.gba,.md,.gen,.smd,.sms,.gg,.chd,.pbp,.bin,.n64,.z64,.v64,.pce,.a26,.a78,.lnx,.ngp,.ngc,.ws,.wsc,.zip,.7z"></label>
+  <!-- En la app Android: añade juegos de PSP al emulador nativo integrado. En la web: enlace a PPSSPP -->
+  <a id="psp" class="btn alt" href="https://play.google.com/store/apps/details?id=org.ppsspp.ppsspp">＋ PSP / DS</a>
+  <button id="install" class="btn alt" hidden>⬇ Instalar</button>
+</header>
+<div id="grid"></div>
+<input id="picfile" type="file" accept="image/*" hidden>
+<div id="empty" hidden>
+  Tu biblioteca está vacía.<br>Toca <b>＋ Añadir juegos</b> y elige archivos de tu teléfono:<br>
+  Flash (.swf) · NES (.nes) · Super NES (.smc .sfc) · Game Boy / GBA (.gb .gbc .gba)<br>
+  Sega Genesis (.md .gen .smd) · Master System (.sms) · Game Gear (.gg)<br>
+  PlayStation (.chd .pbp .bin) · Nintendo 64 (.n64 .z64 .v64) · Arcade (.zip)<br>
+  PC Engine (.pce) · Atari (.a26 .a78 .lnx) · Neo Geo Pocket (.ngp .ngc) · WonderSwan (.ws .wsc)<br>
+  Juegos en .zip / .7z: te preguntará de qué consola son.<br><br>
+  PSP (.iso .cso .chd) y Nintendo DS (.nds): usa el botón <b>＋ PSP / DS</b>.
+</div>
+<script src="db.js"></script>
+<script>
+  if ("serviceWorker" in navigator && location.hostname !== "appassets.local") navigator.serviceWorker.register("sw.js");
+  navigator.storage?.persist?.(); // que el navegador no borre la biblioteca si falta espacio
+  const $ = s => document.querySelector(s);
+
+  let installEv;
+  addEventListener("beforeinstallprompt", e => { e.preventDefault(); installEv = e; $("#install").hidden = false; });
+  $("#install").onclick = async () => { installEv.prompt(); await installEv.userChoice; $("#install").hidden = true; };
+
+  let urls = [];
+  async function render() {
+    urls.forEach(URL.revokeObjectURL); urls = [];
+    const list = (await games.all()).sort((a, b) => a.name.localeCompare(b.name));
+    $("#empty").hidden = list.length > 0;
+    $("#grid").replaceChildren(...list.map(g => {
+      const s = SYSTEMS[g.system];
+      const a = document.createElement("a");
+      a.className = "card"; a.href = "play.html?id=" + g.id;
+      if (g.uri) a.onclick = e => { // PSP / DS: emuladores nativos de la app Android
+        e.preventDefault();
+        if (!window.RV) return alert(s.name + " solo funciona en la app Android");
+        g.system === "nds" ? RV.launchDs(g.uri, g.fileName) : RV.launchPsp(g.uri);
+      };
+      a.innerHTML = `<div class="cover" style="background-color:${s.color}"></div><div class="name"></div><div class="sys"></div>
+        <button class="pic" aria-label="Cambiar carátula">🖼</button><button class="del" aria-label="Quitar de la biblioteca">✕</button>`;
+      const cover = a.querySelector(".cover");
+      if (g.cover) {
+        const u = URL.createObjectURL(g.cover); urls.push(u);
+        cover.classList.add("img"); cover.style.backgroundImage = `url("${u}")`;
+      } else cover.textContent = g.name.slice(0, 2).toUpperCase();
+      a.querySelector(".name").textContent = g.name;
+      a.querySelector(".sys").textContent = s.name;
+      // stopPropagation: en PSP la tarjeta tiene onclick (lanzar juego) y el toque llegaría hasta ella
+      a.querySelector(".pic").onclick = e => { e.preventDefault(); e.stopPropagation(); picFor = g; $("#picfile").click(); };
+      a.querySelector(".del").onclick = async e => {
+        e.preventDefault(); e.stopPropagation();
+        if (confirm(`¿Quitar "${g.name}" de la biblioteca?`)) { await games.del(g.id); render(); }
+      };
+      return a;
+    }));
+    // Carátulas que faltan: se buscan de una en una en segundo plano y se repinta cuando llega alguna
+    if (!searching) {
+      searching = true;
+      for (const g of list) if (await ensureCover(g)) render();
+      searching = false;
+    }
+  }
+  let searching = false;
+
+  // Carátula manual (botón 🖼): cualquier imagen del teléfono
+  let picFor = null;
+  $("#picfile").onchange = async e => {
+    const f = e.target.files[0];
+    if (f && picFor) await games.put({ ...picFor, cover: f, coverTried: true });
+    e.target.value = ""; picFor = null;
+    render();
+  };
+
+  // PSP / DS (solo app Android): la parte nativa elige el archivo y llama a rvNativePicked por cada juego
+  if (window.RV) $("#psp").onclick = e => { e.preventDefault(); RV.pickNative(); };
+  window.rvNativePicked = async (uri, fileName) => {
+    const sys = NATIVE[fileName.split(".").pop().toLowerCase()];
+    if (!sys) return alert("No es un juego de PSP ni de DS:\n" + fileName);
+    await games.addNative(uri, fileName, sys);
+    render();
+  };
+
+  $("#file").onchange = async e => {
+    const bad = [];
+    for (const f of e.target.files) {
+      const opts = choicesOf(f.name);
+      if (opts) { // .zip/.7z/.bin: preguntar la consola
+        const n = prompt(`¿De qué consola es "${f.name}"?\n` + opts.map((s, i) => `${i + 1}) ${SYSTEMS[s].name}`).join("\n"), "1");
+        const sys = opts[+n - 1];
+        sys ? await games.add(f, sys) : bad.push(f.name);
+      } else systemOf(f.name) ? await games.add(f) : bad.push(f.name);
+    }
+    if (bad.length) alert("Formato no compatible:\n" + bad.join("\n"));
+    e.target.value = "";
+    render();
+  };
+  render();
+</script>
+</body>
+</html>

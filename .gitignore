@@ -1,0 +1,14 @@
+# Llave privada de firma: NUNCA subirla (quien la tenga podría publicar "actualizaciones" falsas)
+*.keystore
+*.jks
+
+# Generados por android/build.ps1
+*.apk
+*.idsig
+dist/
+android/build/
+android/build.log
+
+# Wrangler / Node
+.wrangler/
+node_modules/

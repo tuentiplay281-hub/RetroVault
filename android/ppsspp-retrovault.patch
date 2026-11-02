@@ -1,0 +1,119 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 910f322..6625d1b 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -3288,3 +3288,9 @@ if(UNIX AND NOT ANDROID AND NOT APPLE)
+ 		DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/mime/packages"
+ 	)
+ endif()
++
++# RetroVault: reproductor libretro nativo (Nintendo DS con melonDS DS). Código en android/rv-native (copiado por build.ps1)
++if(ANDROID)
++	add_library(rvlibretro SHARED android/rv-native/rvlibretro.c)
++	target_link_libraries(rvlibretro android log dl)
++endif()
+diff --git a/android/AndroidManifest.xml b/android/AndroidManifest.xml
+index 8bdf525..2d1ee79 100644
+--- a/android/AndroidManifest.xml
++++ b/android/AndroidManifest.xml
+@@ -40,16 +40,38 @@
+         android:normalScreens="true"
+         android:smallScreens="true"
+         android:xlargeScreens="true" />
++    <uses-permission android:name="android.permission.VIBRATE" />
+     <application
+         android:allowBackup="true"
+-        android:icon="@mipmap/ic_launcher"
+-        android:label="@string/app_name"
++        android:icon="@mipmap/rv_icon"
++        android:label="RetroVault"
+         android:appCategory="game"
+         android:isGame="true"
+         android:banner="@drawable/ic_banner"
+         android:requestLegacyExternalStorage="true"
+         android:preserveLegacyExternalStorage="true">
+         <meta-data android:name="android.max_aspect" android:value="2.4" />
++        <!-- RetroVault: la biblioteca es la pantalla de inicio; PPSSPP se abre solo para juegos de PSP -->
++        <activity
++            android:name="com.jugarswf.MainActivity"
++            android:exported="true"
++            android:launchMode="singleTask"
++            android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen"
++            android:screenOrientation="sensorLandscape"
++            android:configChanges="orientation|screenSize|screenLayout|keyboard|keyboardHidden|smallestScreenSize">
++            <intent-filter>
++                <action android:name="android.intent.action.MAIN" />
++                <category android:name="android.intent.category.LAUNCHER" />
++                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
++            </intent-filter>
++        </activity>
++        <!-- RetroVault: Nintendo DS nativo (vertical: dos pantallas + mando) -->
++        <activity
++            android:name="com.jugarswf.DsActivity"
++            android:exported="false"
++            android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen"
++            android:screenOrientation="portrait"
++            android:configChanges="orientation|screenSize|screenLayout|keyboard|keyboardHidden|smallestScreenSize" />
+         <activity
+             android:name=".PpssppActivity"
+             android:configChanges="locale|keyboard|keyboardHidden|navigation|uiMode"
+@@ -57,12 +79,6 @@
+ 			android:launchMode="singleInstance"
+             android:exported="true">
+             <property android:name="android.window.PROPERTY_COMPAT_ALLOW_RESTRICTED_RESIZABILITY" android:value="true" />
+-            <intent-filter>
+-                <action android:name="android.intent.action.MAIN" />
+-
+-                <category android:name="android.intent.category.LAUNCHER" />
+-                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
+-            </intent-filter>
+             <intent-filter>
+                 <action android:name="android.intent.action.VIEW" />
+                 <category android:name="android.intent.category.DEFAULT" />
+diff --git a/android/build.gradle.kts b/android/build.gradle.kts
+index acf53a5..2f09346 100644
+--- a/android/build.gradle.kts
++++ b/android/build.gradle.kts
+@@ -174,6 +174,9 @@ android {
+ 			aidl.directories.add("src")
+ 			resources.directories.add("src")
+ 			assets.directories.add("../assets")
++			assets.directories.add("rv-assets") // RetroVault: web de la biblioteca (www/)
++			res.directories.add("rv-res")       // RetroVault: icono rv_icon
++			jniLibs.directories.add("rv-jni")   // RetroVault: núcleos libretro precompilados (melonDS DS)
+ 		}
+ 		create("normal") {
+ 			res.directories.add("normal/res")
+@@ -191,7 +194,7 @@ android {
+ 	}
+ 	productFlavors {
+ 		create("normal") {
+-			applicationId = "org.ppsspp.ppsspp"
++			applicationId = "com.jugarswf" // RetroVault: mismo id que la app instalada, para actualizar encima
+ 			dimension = "variant"
+ 			externalNativeBuild {
+ 				cmake {
+@@ -206,7 +209,7 @@ android {
+ 				}
+ 			}
+ 			ndk {
+-				abiFilters.addAll(listOf("armeabi-v7a", "arm64-v8a", "x86_64"))
++				abiFilters.addAll(listOf("arm64-v8a")) // RetroVault: solo móviles de 64 bits (todos los actuales); compila 3x más rápido
+ 				// debugSymbolLevel = "FULL"  // These don't actually help much in the Google Play crash report. We do still have symbols locally.
+ 			}
+ 		}
+diff --git a/settings.gradle.kts b/settings.gradle.kts
+index 942da04..775f419 100644
+--- a/settings.gradle.kts
++++ b/settings.gradle.kts
+@@ -5,9 +5,7 @@ pluginManagement {
+ 		gradlePluginPortal()
+ 	}
+ }
+-plugins {
+-    id("org.gradle.toolchains.foojay-resolver-convention") version "1.0.0"
+-}
++// RetroVault: quitado foojay-resolver (solo descarga JDKs de toolchains; no se usan y no resolvía)
+ 
+ dependencyResolutionManagement {
+ 	repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)

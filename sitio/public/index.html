@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RetroVault · Tus juegos retro en Android, gratis y sin anuncios</title>
+<meta name="description" content="RetroVault: app Android gratis, sin anuncios y sin conexión para jugar Flash, NES, SNES, Game Boy, Sega, PS1, N64, Arcade, PSP y Nintendo DS en una sola biblioteca.">
+<meta property="og:title" content="RetroVault">
+<meta property="og:description" content="Flash, consolas retro, PSP y DS en una sola app Android. 100% gratis, sin anuncios, sin internet.">
+<meta property="og:image" content="icon-512.png">
+<link rel="icon" href="icon-192.png">
+<meta name="theme-color" content="#0c0c12">
+<style>
+  :root { --bg: #0c0c12; --card: #171722; --line: #262636; --text: #e8e8f0; --dim: #9a9ab0; --cyan: #20e3ff; --mag: #ff2bd6; --green: #33aa77; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 17px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  a { color: var(--cyan); }
+  .wrap { max-width: 1000px; margin: 0 auto; padding: 0 20px; }
+  header.hero { text-align: center; padding: 64px 0 48px; background: radial-gradient(ellipse at top, #1d1630 0%, transparent 60%); }
+  .hero img { width: 140px; height: 140px; filter: drop-shadow(0 0 30px rgba(32,227,255,.25)); }
+  h1 { font-size: clamp(38px, 7vw, 64px); margin: 12px 0 6px; letter-spacing: 1px; }
+  h1 span { background: linear-gradient(90deg, var(--cyan), var(--mag)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .tag { font-size: clamp(18px, 2.6vw, 22px); color: var(--dim); margin: 0 auto 26px; max-width: 640px; }
+  .pills { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin-bottom: 30px; }
+  .pill { border: 1px solid var(--line); background: var(--card); border-radius: 99px; padding: 6px 14px; font-size: 15px; }
+  .btn { display: inline-block; padding: 15px 28px; border-radius: 12px; font-weight: 700; font-size: 18px; text-decoration: none; margin: 6px; }
+  .btn.main { background: var(--green); color: #fff; box-shadow: 0 6px 24px rgba(51,170,119,.35); }
+  .btn.alt { border: 1px solid var(--line); color: var(--text); background: var(--card); }
+  .small { font-size: 14px; color: var(--dim); }
+  section { padding: 48px 0; border-top: 1px solid var(--line); }
+  h2 { font-size: 30px; margin: 0 0 22px; text-align: center; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 18px; }
+  .card h3 { margin: 0 0 6px; font-size: 18px; }
+  .card p { margin: 0; color: var(--dim); font-size: 15px; }
+  .sys { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
+  .sys span { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 8px 14px; }
+  .sys span.native { border-color: var(--mag); box-shadow: 0 0 12px rgba(255,43,214,.25); }
+  ol { max-width: 640px; margin: 0 auto; }
+  ol li { margin-bottom: 10px; }
+  .donate { text-align: center; }
+  .donate p { max-width: 640px; margin: 0 auto 18px; color: var(--dim); }
+  .credits li { margin-bottom: 6px; }
+  footer { padding: 30px 0 50px; text-align: center; color: var(--dim); font-size: 14px; border-top: 1px solid var(--line); }
+  .warn { border-left: 4px solid var(--mag); background: var(--card); padding: 14px 18px; border-radius: 8px; max-width: 700px; margin: 0 auto; }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap">
+    <img src="icon-512.png" alt="Logo de RetroVault">
+    <h1>Retro<span>Vault</span></h1>
+    <p class="tag">Flash, consolas retro, PSP y Nintendo DS en una sola app Android. Tu biblioteca de clásicos, siempre contigo.</p>
+    <div class="pills">
+      <span class="pill">💸 100% gratis</span><span class="pill">🚫 Sin anuncios</span>
+      <span class="pill">📴 Funciona sin internet</span><span class="pill">🔓 Código abierto</span>
+    </div>
+    <!-- DESCARGA: enlace al APK en GitHub Releases -->
+    <a class="btn main" href="https://github.com/tuentiplay281-hub/RetroVault/releases/latest">⬇ Descargar APK</a>
+    <a class="btn alt" href="#donar">❤ Apoyar el proyecto</a>
+    <p class="small">Android 7 o superior · 64 bits · ~80 MB</p>
+  </div>
+</header>
+
+<section>
+  <div class="wrap">
+    <h2>21 sistemas en una app</h2>
+    <div class="sys">
+      <span>Flash (.swf)</span><span>NES</span><span>Super Nintendo</span><span>Game Boy</span><span>Game Boy Color</span>
+      <span>Game Boy Advance</span><span>Sega Genesis</span><span>Master System</span><span>Game Gear</span>
+      <span>PlayStation 1</span><span>Nintendo 64</span><span>Arcade</span><span>PC Engine</span><span>Atari 2600</span>
+      <span>Atari 7800</span><span>Atari Lynx</span><span>Neo Geo Pocket</span><span>WonderSwan</span>
+      <span class="native">⚡ PSP (nativo)</span><span class="native">⚡ Nintendo DS (nativo)</span>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>Por qué RetroVault</h2>
+    <div class="grid">
+      <div class="card"><h3>🚫 Cero anuncios</h3><p>Nació porque otras apps te obligan a ver anuncios para desbloquear juegos. Aquí no hay ni uno, nunca.</p></div>
+      <div class="card"><h3>📚 Biblioteca con carátulas</h3><p>Añade tus juegos una vez; las carátulas se descargan solas. Luego solo tocas y juegas.</p></div>
+      <div class="card"><h3>📴 Sin conexión</h3><p>Todos los emuladores van dentro de la app. Juega en el avión, en el metro o donde quieras.</p></div>
+      <div class="card"><h3>⚡ PSP y DS nativos</h3><p>Emulación nativa a velocidad completa, sin instalar nada más. El DS no necesita BIOS.</p></div>
+      <div class="card"><h3>💾 Partidas guardadas</h3><p>Cada juego guarda su propio progreso, automáticamente.</p></div>
+      <div class="card"><h3>🎮 Mando táctil</h3><p>Controles en pantalla multitáctil. En Flash puedes elegir qué tecla hace cada botón.</p></div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>Cómo instalarla</h2>
+    <ol>
+      <li>Descarga el APK desde el botón de arriba.</li>
+      <li>Ábrelo. Android te pedirá permitir <b>"instalar apps de orígenes desconocidos"</b>: actívalo para tu navegador o gestor de archivos.</li>
+      <li>En <b>Xiaomi / Redmi / POCO</b> puede salir un aviso de seguridad: toca <b>"Instalar de todos modos"</b>. Es normal en apps que no vienen de la Play Store.</li>
+      <li>Abre RetroVault y toca <b>＋ Añadir juegos</b> (o <b>＋ PSP / DS</b>) para elegir tus juegos.</li>
+    </ol>
+    <p class="warn" style="margin-top:22px"><b>RetroVault no incluye juegos.</b> Usa copias de seguridad de juegos que poseas legalmente. No compartimos ni enlazamos ROMs.</p>
+  </div>
+</section>
+
+<section id="donar" class="donate">
+  <div class="wrap">
+    <h2>❤ Apoya el proyecto</h2>
+    <p>RetroVault es y será siempre <b>gratis</b>: sin anuncios, sin compras, sin funciones bloqueadas. Si te gusta y quieres ayudar a que siga mejorando, cualquier donación es muy bien recibida. <b>Nunca es obligatoria.</b></p>
+    <!-- DONACIONES: pon aquí tu enlace de Ko-fi / PayPal / Buy Me a Coffee -->
+    <p class="btn alt" style="display:inline-block;cursor:default">☕ Enlace de donaciones muy pronto</p>
+    <p class="small" style="margin-top:14px">¿No puedes donar? ¡Igual ayudas muchísimo contando qué juegos funcionan en tu móvil o compartiendo la app!</p>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>Créditos y código abierto</h2>
+    <p style="text-align:center;color:var(--dim)">RetroVault existe gracias a estos proyectos libres. Todo el mérito de la emulación es suyo.</p>
+    <ul class="credits" style="max-width:640px;margin:0 auto">
+      <li><a href="https://ruffle.rs">Ruffle</a> — Flash (MIT / Apache-2.0)</li>
+      <li><a href="https://emulatorjs.org">EmulatorJS</a> y núcleos <a href="https://www.libretro.com">libretro</a> — consolas retro (GPL-3.0)</li>
+      <li><a href="https://www.ppsspp.org">PPSSPP</a> — PSP (GPL-2.0)</li>
+      <li><a href="https://github.com/JesseTG/melonds-ds">melonDS DS</a> — Nintendo DS (GPL-3.0)</li>
+      <li>Carátulas de <a href="https://github.com/libretro-thumbnails">libretro-thumbnails</a></li>
+    </ul>
+    <p style="text-align:center;margin-top:18px">
+      <!-- CÓDIGO FUENTE: obligatorio por la licencia GPL -->
+      <a class="btn alt" href="https://github.com/tuentiplay281-hub/RetroVault">💻 Código fuente en GitHub</a>
+    </p>
+  </div>
+</section>
+
+<footer>
+  RetroVault es un proyecto independiente y no está afiliado a Nintendo, Sony, Sega, Atari, SNK, Bandai ni a los proyectos citados.<br>
+  Todas las marcas pertenecen a sus respectivos dueños.
+</footer>
+
+</body>
+</html>

@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover">
+<title>RetroVault</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg">
+<meta name="theme-color" content="#000000">
+<style>
+  html, body { margin: 0; height: 100%; background: #000; color: #eee; font-family: sans-serif; overflow: hidden;
+    -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+  #game { position: fixed; top: env(safe-area-inset-top); bottom: env(safe-area-inset-bottom);
+    left: env(safe-area-inset-left); right: env(safe-area-inset-right); }
+  ruffle-player { display: block; width: 100%; height: 100%; }
+  #back { position: fixed; top: 6px; left: 6px; z-index: 10; width: 40px; height: 40px; border-radius: 8px;
+    background: rgba(60,60,60,.6); color: #fff; font-size: 22px; display: flex; align-items: center; justify-content: center; text-decoration: none; }
+  #bar { position: fixed; top: 6px; right: 6px; display: flex; gap: 6px; z-index: 3; }
+  #bar button { width: 40px; height: 40px; font-size: 20px; border: 0; border-radius: 8px;
+    background: rgba(60,60,60,.6); color: #fff; display: flex; align-items: center; justify-content: center; }
+  .ctl { position: fixed; bottom: calc(16px + env(safe-area-inset-bottom)); z-index: 3; touch-action: none; opacity: .5; }
+  body.hide .ctl { display: none; }
+  #dpad { left: calc(16px + env(safe-area-inset-left)); width: 160px; height: 160px; border-radius: 50%;
+    background: radial-gradient(circle, #555 0 18%, transparent 19%),
+      linear-gradient(#444,#444) center/34% 100% no-repeat, linear-gradient(#444,#444) center/100% 34% no-repeat; }
+  #dpad.on { opacity: .8; }
+  #act { right: calc(16px + env(safe-area-inset-right)); display: grid; grid-template-columns: repeat(2, 72px); gap: 12px; direction: rtl; }
+  #act div { width: 72px; height: 72px; border-radius: 50%; background: #444; color: #fff; font-size: 18px; font-weight: bold;
+    touch-action: none; display: flex; align-items: center; justify-content: center; }
+  #act div.on { background: #3a7; }
+  #flash[hidden] { display: none; }
+</style>
+</head>
+<body>
+<div id="game"></div>
+<a id="back" href="./" aria-label="Volver a la biblioteca">←</a>
+<!-- Controles táctiles propios solo para Flash; las consolas usan el mando de EmulatorJS -->
+<div id="flash" hidden>
+  <div id="bar">
+    <button id="toggle" aria-label="Mostrar u ocultar controles">🎮</button>
+    <button id="cfg" aria-label="Configurar teclas">⚙</button>
+  </div>
+  <div id="dpad" class="ctl" aria-label="Cruceta"></div>
+  <div id="act" class="ctl"></div>
+</div>
+<script src="db.js"></script>
+<script>
+  const $ = s => document.querySelector(s);
+  document.addEventListener("contextmenu", e => e.preventDefault()); // evita el menú al mantener pulsado
+
+  // Guardar partida de consola antes de salir o si Android manda la app a segundo plano
+  const saveEmu = () => { try { window.EJS_emulator?.gameManager?.saveSaveFiles(); } catch {} };
+  document.addEventListener("visibilitychange", () => document.hidden && saveEmu());
+  $("#back").onclick = e => { e.preventDefault(); saveEmu(); setTimeout(() => location.href = "./", 400); };
+
+  (async () => {
+    const g = await games.get(+new URLSearchParams(location.search).get("id"));
+    if (!g) return location.replace("./");
+    document.title = g.name + " · RetroVault";
+    g.system === "swf" ? startFlash(g) : startEmu(g);
+  })();
+
+  function startEmu(g) {
+    Object.assign(window, {
+      EJS_player: "#game", EJS_core: g.system, EJS_gameName: g.name, // gameName = clave de la partida guardada
+      EJS_gameUrl: URL.createObjectURL(g.file), EJS_pathtodata: "emulatorjs/data/",
+      EJS_startOnLoaded: true, EJS_language: "es-ES", EJS_color: "#33aa77",
+      EJS_DEBUG_XX: true, // el paquete npm no trae emulator.min.js: cargar los archivos sin minificar
+    });
+    const s = document.createElement("script");
+    s.src = "emulatorjs/data/loader.js";
+    document.body.appendChild(s);
+  }
+
+  async function startFlash(g) {
+    await new Promise((ok, err) => { const s = document.createElement("script"); s.src = "ruffle/ruffle.js"; s.onload = ok; s.onerror = err; document.head.appendChild(s); });
+    $("#flash").hidden = false;
+    const player = window.RufflePlayer.newest().createPlayer();
+    $("#game").appendChild(player);
+    // swfFileName: sin él todos los juegos se llaman "movie.swf" y comparten (y se pisan) las partidas guardadas
+    player.load({ data: await g.file.arrayBuffer(), swfFileName: g.fileName, autoplay: "on", letterbox: "on", unmuteOverlay: "hidden",
+      scale: "showAll", forceScale: true, salign: "", forceAlign: true }); // el juego siempre cabe entero, centrado
+    player.focus();
+
+    // --- Teclas virtuales ---
+    const SPECIAL = { ArrowLeft: 37, ArrowUp: 38, ArrowRight: 39, ArrowDown: 40, Space: 32, Enter: 13, Shift: 16, Control: 17, Escape: 27 };
+    function keyInfo(k) {
+      if (SPECIAL[k]) return { key: k === "Space" ? " " : k, code: k === "Shift" || k === "Control" ? k + "Left" : k, keyCode: SPECIAL[k] };
+      const c = k.toUpperCase();
+      return { key: k.toLowerCase(), code: (/\d/.test(c) ? "Digit" : "Key") + c, keyCode: c.charCodeAt(0) };
+    }
+    const held = new Set();
+    function press(k, on) {
+      if (on === held.has(k)) return;
+      on ? held.add(k) : held.delete(k);
+      const i = keyInfo(k);
+      player.dispatchEvent(new KeyboardEvent(on ? "keydown" : "keyup", { ...i, which: i.keyCode, bubbles: true }));
+      if (on && navigator.vibrate) navigator.vibrate(8);
+    }
+
+    // --- Configuración guardada ---
+    let cfg = JSON.parse(localStorage.getItem("cfg") || "null") || { dirs: "flechas", btns: ["Space", "Z", "X", "Enter"] };
+    const DIRS = { flechas: ["ArrowUp", "ArrowLeft", "ArrowDown", "ArrowRight"], wasd: ["W", "A", "S", "D"] };
+
+    function buildButtons() {
+      $("#act").innerHTML = "";
+      cfg.btns.forEach(k => {
+        const b = document.createElement("div"); // div, no <button>: un botón roba el foco y Ruffle deja de recibir teclas
+        b.setAttribute("role", "button");
+        b.textContent = k === "Space" ? "ESP" : k === "Enter" ? "⏎" : k;
+        b.setAttribute("aria-label", k);
+        const up = () => { b.classList.remove("on"); press(k, false); };
+        b.addEventListener("pointerdown", e => { e.preventDefault(); b.setPointerCapture(e.pointerId); b.classList.add("on"); press(k, true); });
+        b.addEventListener("pointerup", up);
+        b.addEventListener("pointercancel", up);
+        $("#act").appendChild(b);
+      });
+    }
+    buildButtons();
+
+    $("#cfg").onclick = () => {
+      const d = prompt("Cruceta: escribe  flechas  o  wasd", cfg.dirs);
+      if (d && DIRS[d.trim().toLowerCase()]) cfg.dirs = d.trim().toLowerCase();
+      const b = prompt("Botones (máx. 6, separados por coma).\nEj: Space, Z, X, Enter, Shift, Control, A, 1", cfg.btns.join(", "));
+      if (b) {
+        const list = b.split(",").map(s => s.trim()).filter(s => SPECIAL[s] || /^[a-z0-9]$/i.test(s)).slice(0, 6);
+        if (list.length) cfg.btns = list;
+      }
+      localStorage.setItem("cfg", JSON.stringify(cfg));
+      buildButtons();
+    };
+
+    // --- Cruceta: se puede deslizar el dedo y hacer diagonales ---
+    const dpad = $("#dpad");
+    function setDirs(e) {
+      const r = dpad.getBoundingClientRect();
+      const x = (e.clientX - r.left) / r.width - .5, y = (e.clientY - r.top) / r.height - .5;
+      const [U, L, D, R] = DIRS[cfg.dirs];
+      const dead = Math.hypot(x, y) < .1;
+      press(U, !dead && y < -Math.abs(x) * .5);
+      press(D, !dead && y > Math.abs(x) * .5);
+      press(L, !dead && x < -Math.abs(y) * .5);
+      press(R, !dead && x > Math.abs(y) * .5);
+    }
+    let finger = null;
+    const releaseDirs = e => { if (e.pointerId !== finger) return; finger = null; dpad.classList.remove("on"); Object.values(DIRS).flat().forEach(k => press(k, false)); };
+    dpad.addEventListener("pointerdown", e => { e.preventDefault(); finger = e.pointerId; dpad.setPointerCapture(e.pointerId); dpad.classList.add("on"); setDirs(e); });
+    dpad.addEventListener("pointermove", e => { if (e.pointerId === finger) setDirs(e); });
+    dpad.addEventListener("pointerup", releaseDirs);
+    dpad.addEventListener("pointercancel", releaseDirs);
+
+    $("#bar").addEventListener("click", () => setTimeout(() => { document.activeElement?.blur(); player.focus(); })); // devolver el foco al juego
+    $("#toggle").onclick = () => document.body.classList.toggle("hide"); // para juegos que solo usan toques/ratón
+  }
+</script>
+</body>
+</html>

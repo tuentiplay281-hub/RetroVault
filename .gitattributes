@@ -1,0 +1,3 @@
+# El parche debe conservar LF: PPSSPP usa LF y git apply fallaría con CRLF
+*.patch text eol=lf
+*.sh text eol=lf
