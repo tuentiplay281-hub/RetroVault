@@ -33,6 +33,9 @@ public class DsActivity extends Activity {
     static native void nativeInput(int buttons, int x, int y, int down);
     static native void nativeSave();
     static native void nativeStop();
+    static native boolean nativeState(String path, boolean save);
+    volatile boolean loadState = false;
+    File stateFile; // autoguardado del estado completo (por si Android cierra la app sin RAM)
 
     // Bits RETRO_DEVICE_ID_JOYPAD_*
     static final int B = 0, Y = 1, SELECT = 2, START = 3, UP = 4, DOWN = 5, LEFT = 6, RIGHT = 7, A = 8, X = 9, L = 10, R = 11;
@@ -78,14 +81,45 @@ public class DsActivity extends Activity {
         status.setTextColor(Color.WHITE); status.setTextSize(18); status.setText("Cargando " + name + "…");
         screenBox.addView(status, new FrameLayout.LayoutParams(-2, -2, Gravity.CENTER));
         root.addView(screenBox, new LinearLayout.LayoutParams(-1, 0, 2.2f));
-        root.addView(new Pad(this), new LinearLayout.LayoutParams(-1, 0, 1f));
+        pad = new Pad(this);
+        root.addView(pad, new LinearLayout.LayoutParams(-1, 0, 1f));
         setContentView(root);
 
         emu = new Thread(() -> run(Uri.parse(uri), name), "ds-emu");
         emu.start();
     }
 
-    void pushInput() { nativeInput(buttons, ptrX, ptrY, ptrDown); }
+    // Botones del mando físico (mismos bits libretro que el mando táctil); se suman a los táctiles
+    volatile int padMask, hatMask;
+    View pad; // mando táctil: se atenúa al usar un mando físico y vuelve al tocarlo
+    void padUsed() { if (pad != null && pad.getAlpha() > 0.2f) pad.setAlpha(0.12f); }
+    void pushInput() { nativeInput(buttons | padMask | hatMask, ptrX, ptrY, ptrDown); }
+
+    @Override
+    public boolean dispatchKeyEvent(android.view.KeyEvent e) {
+        int id = MainActivity.retroId(e.getKeyCode());
+        if (id < 0 || id > 11 || !MainActivity.isPad(e)) return super.dispatchKeyEvent(e);
+        padUsed();
+        if (e.getAction() == android.view.KeyEvent.ACTION_DOWN) padMask |= 1 << id;
+        else if (e.getAction() == android.view.KeyEvent.ACTION_UP) padMask &= ~(1 << id);
+        pushInput();
+        return true;
+    }
+
+    @Override
+    public boolean dispatchGenericMotionEvent(MotionEvent e) {
+        if (!MainActivity.isPad(e) || e.getAction() != MotionEvent.ACTION_MOVE) return super.dispatchGenericMotionEvent(e);
+        // Cruceta "hat" o stick izquierdo -> cruceta del DS
+        float x = e.getAxisValue(MotionEvent.AXIS_HAT_X), y = e.getAxisValue(MotionEvent.AXIS_HAT_Y);
+        if (Math.abs(x) < 0.5f) x = e.getAxisValue(MotionEvent.AXIS_X);
+        if (Math.abs(y) < 0.5f) y = e.getAxisValue(MotionEvent.AXIS_Y);
+        hatMask = (y < -0.5f ? 1 << UP : 0) | (y > 0.5f ? 1 << DOWN : 0) | (x < -0.5f ? 1 << LEFT : 0) | (x > 0.5f ? 1 << RIGHT : 0)
+            | (Math.max(e.getAxisValue(MotionEvent.AXIS_LTRIGGER), e.getAxisValue(MotionEvent.AXIS_BRAKE)) > 0.5f ? 1 << L : 0)
+            | (Math.max(e.getAxisValue(MotionEvent.AXIS_RTRIGGER), e.getAxisValue(MotionEvent.AXIS_GAS)) > 0.5f ? 1 << R : 0);
+        if (hatMask != 0) padUsed();
+        pushInput();
+        return true;
+    }
 
     // El núcleo necesita un archivo real: se copia la ROM una vez a la memoria de la app (y así la partida se llama como el juego)
     File localRom(Uri uri, String name) throws Exception {
@@ -112,7 +146,12 @@ public class DsActivity extends Activity {
             String core = getApplicationInfo().nativeLibraryDir + "/libmelondsds_libretro.so";
             double rate = nativeStart(core, rom.getAbsolutePath(), sys.getAbsolutePath(), saves.getAbsolutePath());
             if (rate <= 0) throw new Exception("el emulador no pudo cargar el juego");
-            runOnUiThread(() -> status.setVisibility(View.GONE));
+            File states = new File(getFilesDir(), "ds-states"); states.mkdirs();
+            stateFile = new File(states, rom.getName() + ".state");
+            runOnUiThread(() -> {
+                status.setVisibility(View.GONE);
+                if (stateFile.exists()) offerContinue();
+            });
 
             int sr = (int) Math.round(rate);
             int min = AudioTrack.getMinBufferSize(sr, AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_16BIT);
@@ -122,8 +161,10 @@ public class DsActivity extends Activity {
             short[] audio = new short[16384];
             long frames = 0;
             while (running) {
+                // Guardar ANTES de comprobar la pausa: onPause activa ambos a la vez y hay que guardar ya
+                if (saveNow) { saveNow = false; nativeSave(); nativeState(stateFile.getAbsolutePath(), true); }
                 if (paused) { Thread.sleep(50); continue; }
-                if (saveNow) { saveNow = false; nativeSave(); }
+                if (loadState) { loadState = false; nativeState(stateFile.getAbsolutePath(), false); }
                 int n = nativeRunFrame(audio);
                 // La escritura bloqueante del audio marca el ritmo (velocidad real); sin audio, ~60 fps a mano
                 if (n > 0) track.write(audio, 0, n); else Thread.sleep(16);
@@ -134,10 +175,24 @@ public class DsActivity extends Activity {
             runOnUiThread(() -> { Toast.makeText(this, "DS: " + msg, Toast.LENGTH_LONG).show(); finish(); });
         } finally {
             if (track != null) { track.stop(); track.release(); }
+            if (stateFile != null) nativeState(stateFile.getAbsolutePath(), true); // autoguardado al cerrar
             nativeStop(); // guarda la partida y descarga el núcleo
         }
     }
 
+    // Botón "Continuar" (10 s) si hay un autoguardado de la última vez
+    void offerContinue() {
+        android.widget.Button b = new android.widget.Button(this);
+        b.setText("▶ Continuar donde lo dejaste");
+        b.setBackgroundColor(Color.rgb(51, 170, 119)); b.setTextColor(Color.WHITE);
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.CENTER_HORIZONTAL);
+        lp.topMargin = 24;
+        ((FrameLayout) status.getParent()).addView(b, lp);
+        b.setOnClickListener(v -> { loadState = true; ((FrameLayout) b.getParent()).removeView(b); });
+        b.postDelayed(() -> { if (b.getParent() != null) ((FrameLayout) b.getParent()).removeView(b); }, 10000);
+    }
+
+    // Salir de la app o del juego: guardar partida + estado en el hilo del emulador y pausar
     @Override protected void onPause() { super.onPause(); saveNow = true; paused = true; }
     @Override protected void onResume() { super.onResume(); paused = false; immersive(); }
     @Override protected void onDestroy() {
@@ -192,6 +247,7 @@ public class DsActivity extends Activity {
         }
 
         @Override public boolean onTouchEvent(MotionEvent e) {
+            setAlpha(1f); // al tocarlo vuelve a verse del todo
             int mask = 0, act = e.getActionMasked();
             for (int p = 0; p < e.getPointerCount(); p++) {
                 // El dedo que se levanta en este evento ya no cuenta

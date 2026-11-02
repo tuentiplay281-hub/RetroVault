@@ -81,18 +81,21 @@ foreach ($must in "ruffle\ruffle.js", "emulatorjs\data\loader.js", "emulatorjs\d
 # --- Meter RetroVault dentro del proyecto Android de PPSSPP ---
 $PA = "$PP\android"
 Remove-Item -Recurse -Force "$PA\rv-assets", "$PA\rv-res", "$PA\rv-jni", "$PA\rv-native", "$PA\src\com\jugarswf" -ErrorAction SilentlyContinue
-New-Item -ItemType Directory -Force "$PA\rv-assets", "$PA\rv-res\mipmap-xxxhdpi", "$PA\rv-jni\arm64-v8a", "$PA\src\com\jugarswf" | Out-Null
-# Nintendo DS: reproductor libretro propio (C) + núcleo melonDS DS precompilado por libretro (GPL-3), guardado en caché
+New-Item -ItemType Directory -Force "$PA\rv-assets", "$PA\rv-res\mipmap-xxxhdpi", "$PA\src\com\jugarswf" | Out-Null
+# Nintendo DS: reproductor libretro propio (C) + núcleo melonDS DS precompilado por libretro (GPL-3), en caché por arquitectura
 Copy-Item "$A\native" "$PA\rv-native" -Recurse
-$DSCORE = "$T\cores\melondsds_libretro_android.so"
-if (-not (Test-Path $DSCORE)) {
-  Write-Host "Descargando núcleo de Nintendo DS (melonDS DS)..."
-  New-Item -ItemType Directory -Force "$T\cores" | Out-Null
-  curl.exe -s -L -o "$T\cores\melondsds.zip" "https://buildbot.libretro.com/nightly/android/latest/arm64-v8a/melondsds_libretro_android.so.zip"
-  Expand-Archive "$T\cores\melondsds.zip" "$T\cores" -Force
-  if (-not (Test-Path $DSCORE)) { throw "No se pudo descargar el núcleo de DS" }
+foreach ($abi in "arm64-v8a", "armeabi-v7a") {
+  $DSCORE = "$T\cores\$abi\melondsds_libretro_android.so"
+  if (-not (Test-Path $DSCORE)) {
+    Write-Host "Descargando núcleo de Nintendo DS (melonDS DS, $abi)..."
+    New-Item -ItemType Directory -Force "$T\cores\$abi" | Out-Null
+    curl.exe -s -L -o "$T\cores\$abi\melondsds.zip" "https://buildbot.libretro.com/nightly/android/latest/$abi/melondsds_libretro_android.so.zip"
+    Expand-Archive "$T\cores\$abi\melondsds.zip" "$T\cores\$abi" -Force
+    if (-not (Test-Path $DSCORE)) { throw "No se pudo descargar el núcleo de DS ($abi)" }
+  }
+  New-Item -ItemType Directory -Force "$PA\rv-jni\$abi" | Out-Null
+  Copy-Item $DSCORE "$PA\rv-jni\$abi\libmelondsds_libretro.so"   # Android solo empaqueta bibliotecas que empiezan por lib
 }
-Copy-Item $DSCORE "$PA\rv-jni\arm64-v8a\libmelondsds_libretro.so"   # Android solo empaqueta bibliotecas que empiezan por lib
 Copy-Item $DIST "$PA\rv-assets\www" -Recurse
 Copy-Item "$ROOT\icon-192.png" "$PA\rv-res\mipmap-xxxhdpi\rv_icon.png"
 Copy-Item "$A\src\com\jugarswf\*.java" "$PA\src\com\jugarswf"
@@ -106,7 +109,7 @@ if (-not (Test-Path $KS)) {
 }
 Write-Host "Compilando RetroVault + PPSSPP..."
 Push-Location $PP
-Run .\gradlew.bat --no-daemon ":android:assembleNormalRelease" "-PRELEASE_STORE_FILE=$KS" "-PRELEASE_STORE_PASSWORD=jugarswf" "-PRELEASE_KEY_ALIAS=jugarswf" "-PRELEASE_KEY_PASSWORD=jugarswf" "-PANDROID_VERSION_CODE=4" "-PANDROID_VERSION_NAME=3.1"
+Run .\gradlew.bat --no-daemon ":android:assembleNormalRelease" "-PRELEASE_STORE_FILE=$KS" "-PRELEASE_STORE_PASSWORD=jugarswf" "-PRELEASE_KEY_ALIAS=jugarswf" "-PRELEASE_KEY_PASSWORD=jugarswf" "-PANDROID_VERSION_CODE=7" "-PANDROID_VERSION_NAME=3.4"
 Pop-Location
 $apk = Get-ChildItem "$PA\build\outputs\apk\normal\release\*.apk" | Sort-Object LastWriteTime | Select-Object -Last 1
 if (-not $apk) { throw "No se generó el APK" }

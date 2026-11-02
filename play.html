@@ -29,6 +29,14 @@
     touch-action: none; display: flex; align-items: center; justify-content: center; }
   #act div.on { background: #3a7; }
   #flash[hidden] { display: none; }
+  /* Mando táctil de EmulatorJS: por defecto se apila hasta ~390 px desde abajo y en un móvil apaisado (~360 px) se corta.
+     Se baja hacia el borde y, si aun así no cabe, se escala con --pad (lo calcula fitPad()) */
+  .ejs_virtualGamepad_parent { bottom: 4px !important; transform: scale(var(--pad, 1)); transform-origin: bottom center; }
+  .ejs_virtualGamepad_left, .ejs_virtualGamepad_right { bottom: 34px !important; }
+  .ejs_virtualGamepad_top { bottom: 168px !important; }
+  .ejs_virtualGamepad_bottom { bottom: 2px !important; }
+  /* Con mando físico en uso se ocultan los controles táctiles (vuelven al tocar la pantalla) */
+  body.pad .ejs_virtualGamepad_parent, body.pad #flash .ctl { display: none !important; }
 </style>
 </head>
 <body>
@@ -50,12 +58,25 @@
 
   // Guardar partida de consola antes de salir o si Android manda la app a segundo plano
   const saveEmu = () => { try { window.EJS_emulator?.gameManager?.saveSaveFiles(); } catch {} };
-  document.addEventListener("visibilitychange", () => document.hidden && saveEmu());
-  $("#back").onclick = e => { e.preventDefault(); saveEmu(); setTimeout(() => location.href = "./", 400); };
+  // Segundo plano (llamada, mensaje, botón de inicio): guardar y PAUSAR para no gastar CPU ni batería
+  let ruffle = null, gameId = null; // los asignan startFlash / el arranque
+  // Autoguardado: además de la partida normal, el estado completo, por si Android cierra la app sin RAM
+  const autoState = () => { try { if (window.EJS_emulator?.started) states.put(gameId, EJS_emulator.gameManager.getState()); } catch {} };
+  window.rvPause = () => { saveEmu(); autoState(); try { window.EJS_emulator?.pause?.(); ruffle?.pause?.(); } catch {} };
+  window.rvResume = () => { try { window.EJS_emulator?.play?.(); ruffle?.play?.(); } catch {} };
+  document.addEventListener("visibilitychange", () => document.hidden ? rvPause() : rvResume());
+  // Mando físico: ocultar controles táctiles al usarlo; reaparecen al tocar la pantalla
+  const padUsed = () => document.body.classList.add("pad");
+  addEventListener("touchstart", () => document.body.classList.remove("pad"), { passive: true });
+  $("#back").onclick = e => { e.preventDefault(); saveEmu(); autoState(); setTimeout(() => location.href = "./", 400); };
+  // Vibración corta al pulsar los botones táctiles de las consolas (los de Flash ya vibran)
+  addEventListener("touchstart", e => { if (e.target.closest?.(".ejs_virtualGamepad_parent")) navigator.vibrate?.(8); }, { passive: true });
 
+  window.RV?.orientation("landscape"); // los juegos van en horizontal
   (async () => {
     const g = await games.get(+new URLSearchParams(location.search).get("id"));
     if (!g) return location.replace("./");
+    gameId = g.id;
     document.title = g.name + " · RetroVault";
     g.system === "swf" ? startFlash(g) : startEmu(g);
   })();
@@ -66,20 +87,55 @@
       EJS_gameUrl: URL.createObjectURL(g.file), EJS_pathtodata: "emulatorjs/data/",
       EJS_startOnLoaded: true, EJS_language: "es-ES", EJS_color: "#33aa77",
       EJS_DEBUG_XX: true, // el paquete npm no trae emulator.min.js: cargar los archivos sin minificar
+      // Al arrancar: si hay autoguardado, ofrecer continuar donde se dejó (10 s)
+      EJS_onGameStart: async () => {
+        const st = await states.get(g.id).catch(() => null);
+        if (!st) return;
+        const b = document.createElement("button");
+        b.textContent = "▶ Continuar donde lo dejaste";
+        b.style.cssText = "position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:20;padding:12px 20px;border:0;border-radius:10px;background:#33aa77;color:#fff;font-size:16px;font-weight:bold";
+        b.onclick = () => { EJS_emulator.gameManager.loadState(st.data); b.remove(); };
+        document.body.appendChild(b);
+        setTimeout(() => b.remove(), 10000);
+      },
     });
     const s = document.createElement("script");
     s.src = "emulatorjs/data/loader.js";
     document.body.appendChild(s);
+    // El mando compactado ocupa hasta ~290 px de alto (fila L/R incluida): escalar si la pantalla es más baja
+    const fitPad = () => document.documentElement.style.setProperty("--pad", Math.min(1, (innerHeight - 8) / 290).toFixed(3));
+    fitPad(); addEventListener("resize", fitPad);
+
+    // Mandos físicos (la app Android llama a rvPad/rvAxis; jugador 0 = mando 1, 1 = mando 2...)
+    const analog = ["n64", "psx"].includes(g.system); // estas consolas usan stick analógico; el resto, cruceta
+    const stickDir = {}; // jugador -> direcciones de cruceta pulsadas con el stick
+    const gm = () => window.EJS_emulator?.gameManager;
+    window.rvPad = (player, id, down) => { padUsed(); gm()?.simulateInput(player, id, down ? 1 : 0); };
+    window.rvAxis = (player, axis, v) => { // axis: 0 = X izq., 1 = Y izq., 2 = X der., 3 = Y der.; v de -1 a 1
+      if (!gm()) return;
+      if (v) padUsed();
+      if (analog || axis > 1) {
+        const base = 16 + axis * 2; // 16/17 X+/X-, 18/19 Y+/Y-, 20-23 stick derecho
+        gm().simulateInput(player, base, v > 0 ? Math.round(0x7fff * v) : 0);
+        gm().simulateInput(player, base + 1, v < 0 ? Math.round(-0x7fff * v) : 0);
+      } else { // stick izquierdo como cruceta
+        const [neg, pos] = axis === 0 ? [6, 7] : [4, 5], d = stickDir[player] ||= {};
+        for (const [id, on] of [[neg, v < -0.5], [pos, v > 0.5]]) if (!!d[id] !== on) { d[id] = on; gm().simulateInput(player, id, on ? 1 : 0); }
+      }
+    };
   }
 
   async function startFlash(g) {
     await new Promise((ok, err) => { const s = document.createElement("script"); s.src = "ruffle/ruffle.js"; s.onload = ok; s.onerror = err; document.head.appendChild(s); });
     $("#flash").hidden = false;
     const player = window.RufflePlayer.newest().createPlayer();
+    ruffle = player; // para pausarlo en segundo plano
     $("#game").appendChild(player);
     // swfFileName: sin él todos los juegos se llaman "movie.swf" y comparten (y se pisan) las partidas guardadas
     player.load({ data: await g.file.arrayBuffer(), swfFileName: g.fileName, autoplay: "on", letterbox: "on", unmuteOverlay: "hidden",
-      scale: "showAll", forceScale: true, salign: "", forceAlign: true }); // el juego siempre cabe entero, centrado
+      scale: "showAll", forceScale: true, salign: "", forceAlign: true, // el juego siempre cabe entero, centrado
+      // Aislamiento: el .swf no puede llamar al JavaScript de la app, abrir enlaces ni navegar fuera
+      allowScriptAccess: false, allowNetworking: "internal", openUrlMode: "deny" });
     player.focus();
 
     // --- Teclas virtuales ---
@@ -148,6 +204,19 @@
     dpad.addEventListener("pointermove", e => { if (e.pointerId === finger) setDirs(e); });
     dpad.addEventListener("pointerup", releaseDirs);
     dpad.addEventListener("pointercancel", releaseDirs);
+
+    // Mando físico en Flash (solo jugador 1): cruceta/stick = flechas o WASD; A,B,X,Y,L,R = los botones de ⚙; Start = Enter
+    const padKey = id => {
+      const [U, L, D, R] = DIRS[cfg.dirs];
+      return { 4: U, 5: D, 6: L, 7: R, 3: "Enter", 2: "Escape" }[id] ?? cfg.btns[[8, 0, 9, 1, 10, 11].indexOf(id)];
+    };
+    window.rvPad = (p, id, down) => { padUsed(); const k = p === 0 && padKey(id); if (k) press(k, down); };
+    window.rvAxis = (p, axis, v) => {
+      if (p !== 0 || axis > 1) return;
+      if (v) padUsed();
+      const [neg, pos] = axis === 0 ? [6, 7] : [4, 5];
+      press(padKey(neg), v < -0.5); press(padKey(pos), v > 0.5);
+    };
 
     $("#bar").addEventListener("click", () => setTimeout(() => { document.activeElement?.blur(); player.focus(); })); // devolver el foco al juego
     $("#toggle").onclick = () => document.body.classList.toggle("hide"); // para juegos que solo usan toques/ratón

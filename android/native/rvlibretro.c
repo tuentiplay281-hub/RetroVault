@@ -22,6 +22,7 @@ static void (*c_init)(void), (*c_deinit)(void), (*c_run)(void), (*c_unload)(void
 static void (*c_get_system_info)(struct retro_system_info *), (*c_get_av_info)(struct retro_system_av_info *);
 static bool (*c_load_game)(const struct retro_game_info *);
 static void *(*c_get_memory_data)(unsigned); static size_t (*c_get_memory_size)(unsigned);
+static size_t (*c_serialize_size)(void); static bool (*c_serialize)(void *, size_t), (*c_unserialize)(const void *, size_t);
 static void (*c_set_env)(retro_environment_t), (*c_set_video)(retro_video_refresh_t), (*c_set_audio)(retro_audio_sample_t),
             (*c_set_audio_batch)(retro_audio_sample_batch_t), (*c_set_poll)(retro_input_poll_t), (*c_set_state)(retro_input_state_t),
             (*c_set_controller)(unsigned, unsigned);
@@ -117,6 +118,7 @@ static bool load_symbols(void) {
   SYM(c_set_env, "retro_set_environment") SYM(c_set_video, "retro_set_video_refresh") SYM(c_set_audio, "retro_set_audio_sample")
   SYM(c_set_audio_batch, "retro_set_audio_sample_batch") SYM(c_set_poll, "retro_set_input_poll") SYM(c_set_state, "retro_set_input_state")
   SYM(c_set_controller, "retro_set_controller_port_device")
+  SYM(c_serialize_size, "retro_serialize_size") SYM(c_serialize, "retro_serialize") SYM(c_unserialize, "retro_unserialize")
   return true;
 }
 
@@ -184,6 +186,30 @@ JNIEXPORT void JNICALL Java_com_jugarswf_DsActivity_nativeInput(JNIEnv *e, jclas
 }
 
 JNIEXPORT void JNICALL Java_com_jugarswf_DsActivity_nativeSave(JNIEnv *e, jclass c) { sram_io(true); }
+
+// Estado completo (save state) a/desde archivo: autoguardado al salir, "Continuar" al volver. Devuelve true si funcionó.
+JNIEXPORT jboolean JNICALL Java_com_jugarswf_DsActivity_nativeState(JNIEnv *e, jclass c, jstring jpath, jboolean save) {
+  if (!core) return JNI_FALSE;
+  const char *path = (*e)->GetStringUTFChars(e, jpath, 0);
+  bool ok = false;
+  size_t n = c_serialize_size();
+  void *buf = n ? malloc(n) : NULL;
+  if (buf) {
+    if (save) {
+      if (c_serialize(buf, n)) {
+        char tmp[700]; snprintf(tmp, sizeof tmp, "%s.tmp", path); // escribir aparte y renombrar: nunca un estado a medias
+        FILE *f = fopen(tmp, "wb");
+        if (f) { ok = fwrite(buf, 1, n, f) == n; fclose(f); if (ok) ok = rename(tmp, path) == 0; }
+      }
+    } else {
+      FILE *f = fopen(path, "rb");
+      if (f) { size_t got = fread(buf, 1, n, f); fclose(f); ok = got > 0 && c_unserialize(buf, got); }
+    }
+    free(buf);
+  }
+  (*e)->ReleaseStringUTFChars(e, jpath, path);
+  return ok ? JNI_TRUE : JNI_FALSE;
+}
 
 JNIEXPORT void JNICALL Java_com_jugarswf_DsActivity_nativeStop(JNIEnv *e, jclass c) {
   if (!core) return;
