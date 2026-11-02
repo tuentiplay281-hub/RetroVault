@@ -29,10 +29,10 @@
   .card .del { position: absolute; top: 6px; right: 6px; width: 32px; height: 32px; border: 0; border-radius: 50%;
     background: rgba(0,0,0,.5); color: #fff; font-size: 16px; }
   #empty { padding: 30px 20px; text-align: center; opacity: .75; line-height: 1.6; }
-  #legal { position: fixed; inset: 0; z-index: 50; background: rgba(8,8,14,.96); display: flex; align-items: center; justify-content: center; padding: 20px; }
-  #legal[hidden] { display: none; }
-  #legal div { max-width: 520px; background: #1b1b27; border: 1px solid #33334a; border-radius: 16px; padding: 24px; line-height: 1.55; }
-  #legal h2 { margin-top: 0; }
+  #legal, .modal { position: fixed; inset: 0; z-index: 50; background: rgba(8,8,14,.96); display: flex; align-items: center; justify-content: center; padding: 20px; }
+  #legal[hidden], .modal[hidden] { display: none; }
+  #legal > div, .modal > div { max-width: 520px; background: #1b1b27; border: 1px solid #33334a; border-radius: 16px; padding: 24px; line-height: 1.55; }
+  #legal h2, .modal h2 { margin-top: 0; }
 </style>
 </head>
 <body>
@@ -40,6 +40,7 @@
   <h1>Retro<span>Vault</span></h1>
   <!-- Un solo botón para todo: la consola se detecta sola por el contenido del archivo (detectSystem en db.js) -->
   <label id="add" class="btn">＋ Añadir juegos<input id="file" type="file" multiple hidden></label>
+  <button id="backup" class="btn alt" aria-label="Respaldo de partidas">💾</button>
   <button id="install" class="btn alt" hidden>⬇ Instalar</button>
 </header>
 <div id="legal" hidden role="dialog" aria-modal="true" aria-labelledby="legal-t"><div>
@@ -49,6 +50,14 @@
   <p>Los juegos se ejecutan aislados dentro de la app y solo acceden a los archivos que tú eliges.</p>
   <p style="opacity:.7;font-size:14px">RetroVault no está afiliado a Nintendo, Sony, Sega, Atari, SNK ni Bandai.</p>
   <button id="legal-ok" class="btn" style="width:100%">Entendido</button>
+</div></div>
+<div id="bk" class="modal" hidden role="dialog" aria-modal="true" aria-labelledby="bk-t"><div>
+  <h2 id="bk-t">💾 Respaldo de partidas</h2>
+  <p>Guarda en un archivo todas tus partidas: consolas, Flash, PSP, DS y los "Continuar". Las ROMs no se incluyen.</p>
+  <button id="bk-exp" class="btn" style="width:100%;margin-bottom:10px">⬆ Exportar respaldo</button>
+  <button id="bk-imp" class="btn alt" style="width:100%;margin-bottom:10px">⬇ Importar respaldo</button>
+  <p style="opacity:.7;font-size:14px">Al importar en un móvil nuevo, añade antes tus juegos para recuperar también el "Continuar donde lo dejaste".</p>
+  <button id="bk-close" class="btn alt" style="width:100%">Cerrar</button>
 </div></div>
 <div id="grid"></div>
 <input id="picfile" type="file" accept="image/*" hidden>
@@ -146,6 +155,25 @@
   // Aviso legal: solo la primera vez
   if (!localStorage.getItem("rvLegal")) { $("#legal").hidden = false; $("#legal-ok").focus(); }
   $("#legal-ok").onclick = () => { localStorage.setItem("rvLegal", "1"); $("#legal").hidden = true; };
+
+  // --- Respaldo: la web reúne las partidas en JSON; la app Android añade las del DS/PSP y escribe el .zip ---
+  $("#backup").onclick = () => { $("#bk").hidden = false; $("#bk-exp").focus(); };
+  $("#bk-close").onclick = () => $("#bk").hidden = true;
+  $("#bk-exp").onclick = async () => {
+    if (!window.RV) return alert("El respaldo solo está disponible en la app Android.");
+    $("#bk-exp").textContent = "⏳ Preparando…";
+    try { RV.backupExport(await exportBackup()); } catch (e) { alert("No se pudo crear el respaldo: " + e.message); }
+    $("#bk-exp").textContent = "⬆ Exportar respaldo";
+  };
+  $("#bk-imp").onclick = () => window.RV ? RV.backupImport() : alert("El respaldo solo está disponible en la app Android.");
+  window.rvRestore = async json => { // la app llama aquí con el web.json del .zip (lo nativo ya lo restauró ella)
+    try {
+      const r = await importBackup(json);
+      alert(`✅ Respaldo restaurado: ${r.saves} partidas de consolas y ${r.states} de ${r.statesTotal} "Continuar".` +
+        (r.states < r.statesTotal ? "\nAñade los juegos que faltan y vuelve a importar para recuperar el resto." : ""));
+    } catch (e) { alert("No se pudo restaurar: " + e.message); }
+    $("#bk").hidden = true; render();
+  };
   if (window.RV) {
     // App Android: selector nativo (permiso permanente sobre cada archivo) y lectura por la app
     $("#add").onclick = e => { e.preventDefault(); RV.pickNative(); };

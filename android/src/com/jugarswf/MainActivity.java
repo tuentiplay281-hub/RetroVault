@@ -23,7 +23,8 @@ import android.webkit.WebViewClient;
 public class MainActivity extends Activity {
     // Origen https falso: Ruffle carga su .wasm con fetch(), que no funciona con file://
     static final String HOST = "appassets.local";
-    static final int PICK_PSP = 2;
+    static final int PICK_PSP = 2, BACKUP_EXPORT = 3, BACKUP_IMPORT = 4;
+    String pendingBackup;
     WebView web;
     ValueCallback<Uri[]> pick;
 
@@ -74,6 +75,21 @@ public class MainActivity extends Activity {
                         : android.content.pm.ActivityInfo.SCREEN_ORIENTATION_FULL_USER);
                     lockRefresh60(MainActivity.this, game);
                 });
+            }
+
+            // Respaldo: la web pasa sus partidas (JSON); aquí se añaden las nativas y el usuario elige dónde guardar el .zip
+            @JavascriptInterface
+            public void backupExport(String webJson) {
+                pendingBackup = webJson;
+                String day = new java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(new java.util.Date());
+                startActivityForResult(new Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE)
+                    .setType("application/zip").putExtra(Intent.EXTRA_TITLE, "RetroVault-respaldo-" + day + ".zip"), BACKUP_EXPORT);
+            }
+
+            @JavascriptInterface
+            public void backupImport() {
+                startActivityForResult(new Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE)
+                    .setType("*/*"), BACKUP_IMPORT);
             }
 
             @JavascriptInterface
@@ -179,9 +195,82 @@ public class MainActivity extends Activity {
         }
     }
 
+    // Carpetas nativas que entran en el respaldo: partidas/estados del DS y de PPSSPP (memstick por defecto de la app)
+    java.util.Map<String, java.io.File> backupRoots() {
+        java.util.Map<String, java.io.File> m = new java.util.LinkedHashMap<>();
+        m.put("native/ds-saves/", new java.io.File(getFilesDir(), "ds-saves"));
+        m.put("native/ds-states/", new java.io.File(getFilesDir(), "ds-states"));
+        java.io.File ext = getExternalFilesDir(null);
+        if (ext != null) {
+            m.put("native/psp-savedata/", new java.io.File(ext, "PSP/SAVEDATA"));
+            m.put("native/psp-states/", new java.io.File(ext, "PSP/PPSSPP_STATE"));
+        }
+        return m;
+    }
+
+    void zipDir(java.util.zip.ZipOutputStream z, java.io.File dir, String prefix) throws java.io.IOException {
+        java.io.File[] list = dir.listFiles();
+        if (list == null) return;
+        byte[] buf = new byte[1 << 16];
+        for (java.io.File f : list) {
+            if (f.isDirectory()) { zipDir(z, f, prefix + f.getName() + "/"); continue; }
+            z.putNextEntry(new java.util.zip.ZipEntry(prefix + f.getName()));
+            try (java.io.FileInputStream in = new java.io.FileInputStream(f)) { int n; while ((n = in.read(buf)) > 0) z.write(buf, 0, n); }
+            z.closeEntry();
+        }
+    }
+
+    void writeBackup(Uri out) {
+        try (java.io.OutputStream os = getContentResolver().openOutputStream(out);
+             java.util.zip.ZipOutputStream z = new java.util.zip.ZipOutputStream(os)) {
+            z.putNextEntry(new java.util.zip.ZipEntry("web.json"));
+            z.write(pendingBackup.getBytes("UTF-8"));
+            z.closeEntry();
+            for (java.util.Map.Entry<String, java.io.File> r : backupRoots().entrySet()) zipDir(z, r.getValue(), r.getKey());
+            Toast.makeText(this, "✅ Respaldo guardado", Toast.LENGTH_LONG).show();
+        } catch (Exception e) {
+            Toast.makeText(this, "No se pudo guardar el respaldo: " + e.getMessage(), Toast.LENGTH_LONG).show();
+        }
+        pendingBackup = null;
+    }
+
+    void readBackup(Uri in) {
+        String webJson = null;
+        java.util.Map<String, java.io.File> roots = backupRoots();
+        try (java.util.zip.ZipInputStream z = new java.util.zip.ZipInputStream(getContentResolver().openInputStream(in))) {
+            byte[] buf = new byte[1 << 16];
+            for (java.util.zip.ZipEntry e; (e = z.getNextEntry()) != null; ) {
+                if (e.isDirectory()) continue;
+                if (e.getName().equals("web.json")) {
+                    java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream();
+                    for (int n; (n = z.read(buf)) > 0; ) bo.write(buf, 0, n);
+                    webJson = bo.toString("UTF-8");
+                    continue;
+                }
+                for (java.util.Map.Entry<String, java.io.File> r : roots.entrySet()) {
+                    if (!e.getName().startsWith(r.getKey())) continue;
+                    java.io.File base = r.getValue().getCanonicalFile();
+                    java.io.File dst = new java.io.File(base, e.getName().substring(r.getKey().length())).getCanonicalFile();
+                    // Seguridad (zip slip): nunca escribir fuera de la carpeta de partidas correspondiente
+                    if (!dst.getPath().startsWith(base.getPath() + java.io.File.separator)) break;
+                    dst.getParentFile().mkdirs();
+                    try (java.io.FileOutputStream fo = new java.io.FileOutputStream(dst)) { for (int n; (n = z.read(buf)) > 0; ) fo.write(buf, 0, n); }
+                    break;
+                }
+            }
+        } catch (Exception e) {
+            Toast.makeText(this, "No se pudo leer el respaldo: " + e.getMessage(), Toast.LENGTH_LONG).show();
+            return;
+        }
+        if (webJson == null) { Toast.makeText(this, "El archivo no es un respaldo de RetroVault", Toast.LENGTH_LONG).show(); return; }
+        web.evaluateJavascript("rvRestore(" + JSONObject.quote(webJson) + ")", null);
+    }
+
     @Override
     protected void onActivityResult(int req, int res, Intent data) {
         if (req == PICK_PSP) { if (res == RESULT_OK && data != null) onPspPicked(data); return; }
+        if (req == BACKUP_EXPORT) { if (res == RESULT_OK && data != null && pendingBackup != null) writeBackup(data.getData()); else pendingBackup = null; return; }
+        if (req == BACKUP_IMPORT) { if (res == RESULT_OK && data != null) readBackup(data.getData()); return; }
         if (pick == null) return;
         Uri[] out = null;
         if (res == RESULT_OK && data != null) {

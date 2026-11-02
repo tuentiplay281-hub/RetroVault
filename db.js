@@ -144,12 +144,63 @@ const games = {
   del: id => Promise.all([tx("readwrite", s => s.delete(id)), states.del(id)]),
   put: g => tx("readwrite", s => s.put(g)),
 };
-// Estado completo de la partida (save state) guardado al salir: sobrevive a que Android cierre la app por falta de RAM
+// Estado completo de la partida (save state) guardado al salir: sobrevive a que Android cierra la app por falta de RAM
 const states = {
   get: id => tx("readonly", s => s.get(id), "states"),
   put: (id, data) => tx("readwrite", s => s.put({ data, at: Date.now() }, id), "states"),
   del: id => tx("readwrite", s => s.delete(id), "states"),
 };
+
+// --- Respaldo de partidas (sin ROMs) ---
+// Partidas de consolas: EmulatorJS las guarda en la base IDBFS de Emscripten "/data/saves" (almacén FILE_DATA, versión 21).
+// Flash (Ruffle) y ajustes: localStorage. Autoguardados: almacén "states" (se asocian por nombre de archivo, no por id).
+const SAVES_DB = ["/data/saves", "FILE_DATA", 21];
+const b64of = async u8 => (await new Promise(r => { const f = new FileReader(); f.onload = () => r(f.result); f.readAsDataURL(new Blob([u8])); })).split(",")[1];
+const u8of = b64 => Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+function idbOpen(name, store, version) {
+  return new Promise((ok, err) => {
+    const r = version ? indexedDB.open(name, version) : indexedDB.open(name);
+    r.onupgradeneeded = () => { // igual que crea Emscripten su IDBFS
+      if (!r.result.objectStoreNames.contains(store)) r.result.createObjectStore(store).createIndex("timestamp", "timestamp", { unique: false });
+    };
+    r.onsuccess = () => ok(r.result); r.onerror = () => err(r.error);
+  });
+}
+async function idbAll(name, store, version) {
+  const db = await idbOpen(name, store, version);
+  if (!db.objectStoreNames.contains(store)) { db.close(); return []; }
+  return new Promise((ok, err) => {
+    const out = [], c = db.transaction(store).objectStore(store).openCursor();
+    c.onsuccess = () => { const cur = c.result; if (cur) { out.push({ k: cur.key, v: cur.value }); cur.continue(); } else { db.close(); ok(out); } };
+    c.onerror = () => err(c.error);
+  });
+}
+async function exportBackup() {
+  const byId = Object.fromEntries((await games.all()).map(g => [g.id, g]));
+  const saves = await Promise.all((await idbAll(...SAVES_DB)).map(async ({ k, v }) =>
+    ({ k, t: +v.timestamp, m: v.mode, c: v.contents ? await b64of(v.contents) : null })));
+  const st = await Promise.all((await idbAll("retrovault", "states")).map(async ({ k, v }) =>
+    byId[k] && { fileName: byId[k].fileName, system: byId[k].system, at: v.at, data: await b64of(v.data) }));
+  return JSON.stringify({ app: "RetroVault", v: 1, at: Date.now(), localStorage: { ...localStorage }, saves, states: st.filter(Boolean) });
+}
+async function importBackup(json) {
+  const b = JSON.parse(json);
+  if (b.app !== "RetroVault" || !Array.isArray(b.saves)) throw new Error("El archivo no es un respaldo de RetroVault");
+  for (const [k, v] of Object.entries(b.localStorage || {})) localStorage.setItem(k, v);
+  const db = await idbOpen(...SAVES_DB);
+  await new Promise((ok, err) => {
+    const t = db.transaction(SAVES_DB[1], "readwrite"), s = t.objectStore(SAVES_DB[1]);
+    for (const x of b.saves) s.put({ timestamp: new Date(x.t), mode: x.m, ...(x.c != null && { contents: u8of(x.c) }) }, x.k);
+    t.oncomplete = () => { db.close(); ok(); }; t.onerror = () => err(t.error);
+  });
+  const lib = await games.all();
+  let matched = 0;
+  for (const s of b.states || []) {
+    const g = lib.find(x => x.fileName === s.fileName && x.system === s.system);
+    if (g) { await states.put(g.id, u8of(s.data)); matched++; }
+  }
+  return { saves: b.saves.filter(x => x.c != null).length, states: matched, statesTotal: (b.states || []).length };
+}
 
 // --- Carátulas automáticas (libretro-thumbnails, las de RetroArch). Se guardan en la app: luego se ven sin internet ---
 const COVER_REPO = { nes: "Nintendo_-_Nintendo_Entertainment_System", snes: "Nintendo_-_Super_Nintendo_Entertainment_System",
