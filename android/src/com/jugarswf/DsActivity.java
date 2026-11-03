@@ -82,7 +82,15 @@ public class DsActivity extends Activity {
         screenBox.addView(status, new FrameLayout.LayoutParams(-2, -2, Gravity.CENTER));
         root.addView(screenBox, new LinearLayout.LayoutParams(-1, 0, 2.2f));
         pad = new Pad(this);
-        root.addView(pad, new LinearLayout.LayoutParams(-1, 0, 1f));
+        pad.setAlpha(padAlpha());
+        FrameLayout padBox = new FrameLayout(this);
+        padBox.addView(pad, new FrameLayout.LayoutParams(-1, -1));
+        // ✎: tamaño y opacidad del mando (se guardan)
+        android.widget.Button edit = new android.widget.Button(this);
+        edit.setText("✎"); edit.setContentDescription("Editar tamaño y opacidad de los controles");
+        edit.setOnClickListener(v -> editPad());
+        padBox.addView(edit, new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.CENTER_HORIZONTAL));
+        root.addView(padBox, new LinearLayout.LayoutParams(-1, 0, 1f));
         setContentView(root);
 
         emu = new Thread(() -> run(Uri.parse(uri), name), "ds-emu");
@@ -91,8 +99,36 @@ public class DsActivity extends Activity {
 
     // Botones del mando físico (mismos bits libretro que el mando táctil); se suman a los táctiles
     volatile int padMask, hatMask;
-    View pad; // mando táctil: se atenúa al usar un mando físico y vuelve al tocarlo
+    Pad pad; // mando táctil: se atenúa al usar un mando físico y vuelve al tocarlo
     void padUsed() { if (pad != null && pad.getAlpha() > 0.2f) pad.setAlpha(0.12f); }
+    android.content.SharedPreferences prefs() { return getSharedPreferences("ds-pad", MODE_PRIVATE); }
+    float padScale() { return prefs().getFloat("scale", 1f); }
+    float padAlpha() { return prefs().getFloat("alpha", 1f); }
+
+    // Diálogo con dos deslizadores: tamaño (60-140 %) y opacidad (15-100 %), aplicados al momento
+    void editPad() {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL); box.setPadding(48, 24, 48, 0);
+        android.widget.SeekBar size = new android.widget.SeekBar(this), op = new android.widget.SeekBar(this);
+        size.setMax(80); size.setProgress(Math.round(padScale() * 100) - 60);
+        op.setMax(85); op.setProgress(Math.round(padAlpha() * 100) - 15);
+        TextView t1 = new TextView(this), t2 = new TextView(this);
+        t1.setText("Tamaño"); t2.setText("Opacidad");
+        box.addView(t1); box.addView(size); box.addView(t2); box.addView(op);
+        android.widget.SeekBar.OnSeekBarChangeListener live = new android.widget.SeekBar.OnSeekBarChangeListener() {
+            public void onProgressChanged(android.widget.SeekBar s, int p, boolean user) {
+                prefs().edit().putFloat("scale", (size.getProgress() + 60) / 100f).putFloat("alpha", (op.getProgress() + 15) / 100f).apply();
+                pad.setAlpha(padAlpha()); pad.requestLayout(); pad.relayout();
+            }
+            public void onStartTrackingTouch(android.widget.SeekBar s) {}
+            public void onStopTrackingTouch(android.widget.SeekBar s) {}
+        };
+        size.setOnSeekBarChangeListener(live); op.setOnSeekBarChangeListener(live);
+        new android.app.AlertDialog.Builder(this).setTitle("Controles").setView(box)
+            .setPositiveButton("Listo", null)
+            .setNeutralButton("Restablecer", (d, w) -> { prefs().edit().clear().apply(); pad.setAlpha(1f); pad.relayout(); })
+            .show();
+    }
     void pushInput() { nativeInput(buttons | padMask | hatMask, ptrX, ptrY, ptrDown); }
 
     @Override
@@ -221,8 +257,10 @@ public class DsActivity extends Activity {
             for (int i = 0; i < rects.length; i++) rects[i] = new RectF();
         }
 
+        void relayout() { onSizeChanged(getWidth(), getHeight(), 0, 0); invalidate(); }
+
         @Override protected void onSizeChanged(int w, int h, int ow, int oh) {
-            float u = Math.min(w / 9f, h / 4.2f); // unidad de tamaño
+            float u = Math.min(w / 9f, h / 4.2f) * padScale(); // unidad de tamaño (× tamaño elegido en ✎)
             float cy = h * 0.58f, lx = w * 0.2f, rx = w * 0.8f;
             set(0, w * 0.02f, 0, w * 0.3f, u * 0.8f);          // L
             set(1, w * 0.7f, 0, w * 0.98f, u * 0.8f);          // R
@@ -247,7 +285,7 @@ public class DsActivity extends Activity {
         }
 
         @Override public boolean onTouchEvent(MotionEvent e) {
-            setAlpha(1f); // al tocarlo vuelve a verse del todo
+            setAlpha(padAlpha()); // al tocarlo vuelve a su opacidad elegida
             int mask = 0, act = e.getActionMasked();
             for (int p = 0; p < e.getPointerCount(); p++) {
                 // El dedo que se levanta en este evento ya no cuenta

@@ -34,14 +34,53 @@
   .ejs_virtualGamepad_parent { bottom: 4px !important; transform: scale(var(--pad, 1)); transform-origin: bottom center; }
   .ejs_virtualGamepad_left, .ejs_virtualGamepad_right { bottom: 34px !important; }
   .ejs_virtualGamepad_top { bottom: 168px !important; }
-  .ejs_virtualGamepad_bottom { bottom: 2px !important; }
+  /* N64 y WonderSwan colocan botones ~32 px más abajo que el resto: subir sus zonas laterales */
+  .ejs_virtualGamepad_parent:has(.cs_n64, .cs_ws) :is(.ejs_virtualGamepad_left, .ejs_virtualGamepad_right) { bottom: 74px !important; }
+  /* Fila central (Start/Select): EmulatorJS pone Rápido/Lento 50 px por debajo, así que debe quedar a ≥54 px del borde */
+  .ejs_virtualGamepad_bottom { bottom: 56px !important; }
+  /* Editor de controles (✎): los grupos editables se marcan; el elegido, en magenta */
+  #edit { position: fixed; top: 6px; left: 52px; z-index: 10; width: 40px; height: 40px; border: 0; border-radius: 8px;
+    background: rgba(60,60,60,.6); color: #fff; font-size: 20px; }
+  body.hud-edit .hud { outline: 2px dashed #33aa77; outline-offset: 4px; }
+  body.hud-edit .hud.sel { outline: 3px solid #ff2bd6; }
+  #hudpanel { position: fixed; top: 52px; left: 50%; transform: translateX(-50%); z-index: 30; display: flex; flex-wrap: wrap; gap: 8px;
+    align-items: center; justify-content: center; background: rgba(20,20,30,.92); border: 1px solid #444; border-radius: 12px; padding: 8px 10px; color: #fff; max-width: 94vw; font-size: 13px; }
+  #hudpanel[hidden] { display: none; }
+  #hudpanel button { padding: 8px 12px; border: 0; border-radius: 8px; background: #33334a; color: #fff; font-size: 15px; }
+  #hudpanel button.ok { background: #33aa77; }
+  /* Joystick flotante (Flash, modo joystick): aparece donde tocas en la mitad izquierda */
+  body.joy #dpad { left: 0; bottom: 0; width: 45vw; height: 75vh; border-radius: 0; background: none; opacity: 1; }
+  #knob { position: fixed; z-index: 4; width: 140px; height: 140px; margin: -70px 0 0 -70px; border-radius: 50%; pointer-events: none;
+    border: 2px solid rgba(255,255,255,.35); background: rgba(255,255,255,.08); }
+  #knob i { position: absolute; left: 42px; top: 42px; width: 56px; height: 56px; border-radius: 50%; background: rgba(255,255,255,.45); }
+  #knob[hidden] { display: none; }
+  /* Pantalla de carga retro (se quita al arrancar el juego) */
+  @font-face { font-family: "Retro"; src: url("fonts/PressStart2P-Regular.ttf") format("truetype"); font-display: swap; }
+  #loading { position: fixed; inset: 0; z-index: 8; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px;
+    background: #0c0c12; color: #20e3ff; font-family: "Retro", monospace; font-size: 12px; text-align: center; padding: 20px;
+    text-shadow: 0 0 8px rgba(32,227,255,.6); }
+  #loading[hidden] { display: none; }
+  #loading b { font-weight: normal; color: #ff2bd6; animation: blink 1s steps(2) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+  /* Filtro "scanlines" de Flash: líneas de barrido de televisor CRT sobre el juego (no bloquea los toques) */
+  body.scan #game::after { content: ""; position: absolute; inset: 0; pointer-events: none; z-index: 1;
+    background: repeating-linear-gradient(to bottom, rgba(0,0,0,.28) 0 1px, transparent 1px 3px); }
   /* Con mando físico en uso se ocultan los controles táctiles (vuelven al tocar la pantalla) */
   body.pad .ejs_virtualGamepad_parent, body.pad #flash .ctl { display: none !important; }
 </style>
 </head>
 <body>
 <div id="game"></div>
+<div id="loading" role="status"><span id="loading-name"></span><b>CARGANDO...</b></div>
 <a id="back" href="./" aria-label="Volver a la biblioteca">←</a>
+<button id="edit" aria-label="Editar controles: mover, tamaño y opacidad">✎</button>
+<div id="hudpanel" hidden role="dialog" aria-label="Editor de controles">
+  <span>Arrastra para mover · toca uno para cambiar su tamaño</span>
+  <button id="hud-minus" aria-label="Más pequeño">−</button><button id="hud-plus" aria-label="Más grande">＋</button>
+  <label>Opacidad <input id="hud-op" type="range" min="0.15" max="1" step="0.05"></label>
+  <button id="hud-reset">Restablecer</button><button id="hud-ok" class="ok">Listo</button>
+</div>
+<div id="knob" hidden><i></i></div>
 <!-- Controles táctiles propios solo para Flash; las consolas usan el mando de EmulatorJS -->
 <div id="flash" hidden>
   <div id="bar">
@@ -72,12 +111,77 @@
   // Vibración corta al pulsar los botones táctiles de las consolas (los de Flash ya vibran)
   addEventListener("touchstart", e => { if (e.target.closest?.(".ejs_virtualGamepad_parent")) navigator.vibrate?.(8); }, { passive: true });
 
+  // --- Editor de controles: mover / tamaño / opacidad por grupo, guardado por consola ---
+  // Grupos: los de Flash (#dpad, #act) y las zonas del mando de EmulatorJS
+  const HUD = ["#dpad", "#act", ".ejs_virtualGamepad_left", ".ejs_virtualGamepad_right", ".ejs_virtualGamepad_top", ".ejs_virtualGamepad_bottom"];
+  let hudSys = "", hud = {};
+  const hudEls = () => HUD.map(sel => [sel, $(sel)]).filter(([, el]) => el && el.getClientRects().length);
+  function applyHud() { // posiciones en fracción de pantalla: sirven en cualquier tamaño/rotación
+    // El mando de EmulatorJS está dentro de un contenedor escalado (--pad): compensar para que siga al dedo
+    const pad = +getComputedStyle(document.documentElement).getPropertyValue("--pad") || 1;
+    for (const [sel, el] of hudEls()) {
+      const h = hud[sel] || {}, k = sel.startsWith(".ejs") ? 1 / pad : 1;
+      el.style.translate = `${(h.x || 0) * innerWidth * k}px ${(h.y || 0) * innerHeight * k}px`;
+      el.style.scale = h.s || 1;
+      el.style.opacity = hud.op ?? "";
+    }
+  }
+  function loadHud(sys) { hudSys = sys; hud = JSON.parse(localStorage.getItem("rvHud:" + sys) || "{}"); applyHud(); }
+  addEventListener("resize", applyHud);
+  $("#edit").onclick = () => {
+    const els = hudEls();
+    if (!els.length) return alert("Este juego no tiene controles táctiles que editar (o están ocultos porque usas un mando).");
+    rvPause();
+    document.body.classList.add("hud-edit"); els.forEach(([, el]) => el.classList.add("hud"));
+    $("#hudpanel").hidden = false; $("#hud-op").value = hud.op ?? 1;
+    let sel = els[0][0], drag = null;
+    const mark = () => els.forEach(([s, el]) => el.classList.toggle("sel", s === sel));
+    mark();
+    // En edición los toques mueven controles, no juegan: se capturan antes que los del juego
+    const groupAt = e => els.find(([, el]) => el.contains(e.target));
+    const down = e => {
+      if ($("#hudpanel").contains(e.target)) return;
+      e.stopPropagation(); e.preventDefault();
+      const g = e.type === "pointerdown" && groupAt(e);
+      if (!g) return;
+      sel = g[0]; mark();
+      const h = hud[sel] ||= {};
+      drag = { x0: e.clientX, y0: e.clientY, hx: h.x || 0, hy: h.y || 0 };
+    };
+    const move = e => {
+      if (!drag) return;
+      e.stopPropagation(); e.preventDefault();
+      hud[sel].x = drag.hx + (e.clientX - drag.x0) / innerWidth;
+      hud[sel].y = drag.hy + (e.clientY - drag.y0) / innerHeight;
+      applyHud();
+    };
+    const up = e => { if (drag) { e.stopPropagation(); drag = null; } };
+    const opts = { capture: true, passive: false };
+    addEventListener("pointerdown", down, opts); addEventListener("touchstart", down, opts);
+    addEventListener("pointermove", move, opts); addEventListener("pointerup", up, opts);
+    const size = d => { const h = hud[sel] ||= {}; h.s = Math.min(2, Math.max(0.5, Math.round(((h.s || 1) + d) * 10) / 10)); applyHud(); };
+    $("#hud-minus").onclick = () => size(-0.1);
+    $("#hud-plus").onclick = () => size(0.1);
+    $("#hud-op").oninput = e => { hud.op = +e.target.value; applyHud(); };
+    $("#hud-reset").onclick = () => { hud = {}; $("#hud-op").value = 1; applyHud(); };
+    $("#hud-ok").onclick = () => {
+      localStorage.setItem("rvHud:" + hudSys, JSON.stringify(hud));
+      removeEventListener("pointerdown", down, opts); removeEventListener("touchstart", down, opts);
+      removeEventListener("pointermove", move, opts); removeEventListener("pointerup", up, opts);
+      document.body.classList.remove("hud-edit"); els.forEach(([, el]) => el.classList.remove("hud", "sel"));
+      $("#hudpanel").hidden = true; rvResume();
+    };
+  };
+
   window.RV?.orientation("landscape"); // los juegos van en horizontal
+  if (localStorage.getItem("rvDnd") === "1") window.RV?.dnd(true); // No molestar mientras se juega (opcional)
   (async () => {
     const g = await games.get(+new URLSearchParams(location.search).get("id"));
     if (!g) return location.replace("./");
     gameId = g.id;
     document.title = g.name + " · RetroVault";
+    $("#loading-name").textContent = g.name;
+    setTimeout(() => $("#loading").hidden = true, 15000); // por si el arranque no avisa: nunca tapar el juego para siempre
     g.system === "swf" ? startFlash(g) : startEmu(g);
   })();
 
@@ -89,6 +193,8 @@
       EJS_DEBUG_XX: true, // el paquete npm no trae emulator.min.js: cargar los archivos sin minificar
       // Al arrancar: si hay autoguardado, ofrecer continuar donde se dejó (10 s)
       EJS_onGameStart: async () => {
+        $("#loading").hidden = true;
+        loadHud(g.system); setTimeout(applyHud, 600); // disposición de controles guardada para esta consola
         const st = await states.get(g.id).catch(() => null);
         if (!st) return;
         const b = document.createElement("button");
@@ -126,6 +232,7 @@
   }
 
   async function startFlash(g) {
+    const savedCfg = JSON.parse(localStorage.getItem("cfg") || "{}"); // filtro de imagen elegido en ⚙
     await new Promise((ok, err) => { const s = document.createElement("script"); s.src = "ruffle/ruffle.js"; s.onload = ok; s.onerror = err; document.head.appendChild(s); });
     $("#flash").hidden = false;
     const player = window.RufflePlayer.newest().createPlayer();
@@ -135,7 +242,10 @@
     player.load({ data: await g.file.arrayBuffer(), swfFileName: g.fileName, autoplay: "on", letterbox: "on", unmuteOverlay: "hidden",
       scale: "showAll", forceScale: true, salign: "", forceAlign: true, // el juego siempre cabe entero, centrado
       // Aislamiento: el .swf no puede llamar al JavaScript de la app, abrir enlaces ni navegar fuera
-      allowScriptAccess: false, allowNetworking: "internal", openUrlMode: "deny" });
+      allowScriptAccess: false, allowNetworking: "internal", openUrlMode: "deny",
+      quality: savedCfg.img === "nitido" ? "low" : "high" }); // "low" = sin suavizado: píxeles nítidos
+    document.body.classList.toggle("scan", savedCfg.img === "scanlines");
+    $("#loading").hidden = true;
     player.focus();
 
     // --- Teclas virtuales ---
@@ -173,24 +283,43 @@
       });
     }
     buildButtons();
+    document.body.classList.toggle("joy", cfg.mode === "joystick");
+    loadHud("swf");
 
     $("#cfg").onclick = () => {
-      const d = prompt("Cruceta: escribe  flechas  o  wasd", cfg.dirs);
+      const m = prompt("Movimiento: escribe  cruceta  o  joystick\n(joystick: aparece donde tocas en la mitad izquierda)", cfg.mode || "cruceta");
+      if (m && ["cruceta", "joystick"].includes(m.trim().toLowerCase())) cfg.mode = m.trim().toLowerCase();
+      document.body.classList.toggle("joy", cfg.mode === "joystick");
+      const d = prompt("Teclas de movimiento: escribe  flechas  o  wasd", cfg.dirs);
       if (d && DIRS[d.trim().toLowerCase()]) cfg.dirs = d.trim().toLowerCase();
       const b = prompt("Botones (máx. 6, separados por coma).\nEj: Space, Z, X, Enter, Shift, Control, A, 1", cfg.btns.join(", "));
       if (b) {
         const list = b.split(",").map(s => s.trim()).filter(s => SPECIAL[s] || /^[a-z0-9]$/i.test(s)).slice(0, 6);
         if (list.length) cfg.btns = list;
       }
+      const im = prompt("Imagen: escribe  normal,  nitido  (píxeles sin suavizar)  o  scanlines  (efecto TV antigua)", cfg.img || "normal");
+      if (im && ["normal", "nitido", "scanlines"].includes(im.trim().toLowerCase())) {
+        const was = cfg.img; cfg.img = im.trim().toLowerCase();
+        document.body.classList.toggle("scan", cfg.img === "scanlines");
+        if ((was === "nitido") !== (cfg.img === "nitido")) alert("El modo nítido se aplicará al volver a abrir el juego.");
+      }
       localStorage.setItem("cfg", JSON.stringify(cfg));
       buildButtons();
     };
 
     // --- Cruceta: se puede deslizar el dedo y hacer diagonales ---
-    const dpad = $("#dpad");
+    const dpad = $("#dpad"), knob = $("#knob"), KR = 70; // KR: radio del joystick en px
+    let origin = null; // centro del joystick flotante (donde se tocó)
     function setDirs(e) {
-      const r = dpad.getBoundingClientRect();
-      const x = (e.clientX - r.left) / r.width - .5, y = (e.clientY - r.top) / r.height - .5;
+      let x, y; // posición relativa al centro, en -0.5..0.5
+      if (cfg.mode === "joystick") {
+        const dx = e.clientX - origin.x, dy = e.clientY - origin.y, d = Math.hypot(dx, dy), k = d > KR ? KR / d : 1;
+        knob.firstChild.style.translate = `${dx * k}px ${dy * k}px`;
+        x = dx / (2 * KR); y = dy / (2 * KR);
+      } else {
+        const r = dpad.getBoundingClientRect();
+        x = (e.clientX - r.left) / r.width - .5; y = (e.clientY - r.top) / r.height - .5;
+      }
       const [U, L, D, R] = DIRS[cfg.dirs];
       const dead = Math.hypot(x, y) < .1;
       press(U, !dead && y < -Math.abs(x) * .5);
@@ -199,8 +328,15 @@
       press(R, !dead && x > Math.abs(y) * .5);
     }
     let finger = null;
-    const releaseDirs = e => { if (e.pointerId !== finger) return; finger = null; dpad.classList.remove("on"); Object.values(DIRS).flat().forEach(k => press(k, false)); };
-    dpad.addEventListener("pointerdown", e => { e.preventDefault(); finger = e.pointerId; dpad.setPointerCapture(e.pointerId); dpad.classList.add("on"); setDirs(e); });
+    const releaseDirs = e => { if (e.pointerId !== finger) return; finger = null; knob.hidden = true; dpad.classList.remove("on"); Object.values(DIRS).flat().forEach(k => press(k, false)); };
+    dpad.addEventListener("pointerdown", e => {
+      e.preventDefault(); finger = e.pointerId; dpad.setPointerCapture(e.pointerId); dpad.classList.add("on");
+      if (cfg.mode === "joystick") { // el joystick nace bajo el dedo
+        origin = { x: e.clientX, y: e.clientY };
+        Object.assign(knob.style, { left: origin.x + "px", top: origin.y + "px" }); knob.hidden = false;
+      }
+      setDirs(e);
+    });
     dpad.addEventListener("pointermove", e => { if (e.pointerId === finger) setDirs(e); });
     dpad.addEventListener("pointerup", releaseDirs);
     dpad.addEventListener("pointercancel", releaseDirs);

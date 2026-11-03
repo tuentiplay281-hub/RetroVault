@@ -8,10 +8,21 @@
 <link rel="icon" href="icon.svg">
 <meta name="theme-color" content="#14141c">
 <style>
+  /* Tema retro: tipografía pixelada solo en títulos (legible), neón con los colores del logo, líneas de TV sutiles */
+  @font-face { font-family: "Retro"; src: url("fonts/PressStart2P-Regular.ttf") format("truetype"); font-display: swap; }
+  h1, h2, h3 { font-family: "Retro", monospace; font-weight: normal; line-height: 1.4; }
+  h2 { font-size: 17px; } h3 { font-size: 13px; }
+  h1 { text-shadow: 0 0 8px rgba(32,227,255,.55), 0 0 18px rgba(255,43,214,.35); }
+  h1 span { color: #20e3ff; }
+  body::before { content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 0;
+    background: repeating-linear-gradient(to bottom, rgba(255,255,255,.018) 0 1px, transparent 1px 3px); }
+  header, #grid, #empty { position: relative; z-index: 1; }
+  .card { transition: transform .12s, box-shadow .12s; }
+  .card:active, .card:focus-visible { transform: scale(.97); box-shadow: 0 0 0 2px #ff2bd6, 0 0 18px rgba(255,43,214,.45); outline: none; }
   body { margin: 0; min-height: 100vh; background: #14141c; color: #eee; font-family: sans-serif;
     padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
   header { display: flex; align-items: center; gap: 10px; padding: 14px 16px; flex-wrap: wrap; }
-  h1 { margin: 0 auto 0 0; font-size: 26px; letter-spacing: 1px; }
+  h1 { margin: 0 auto 0 0; font-size: 20px; letter-spacing: 1px; }
   h1 span { color: #3a7; }
   .btn { padding: 12px 18px; border: 0; border-radius: 10px; font-size: 16px; color: #fff; background: #3a7; text-decoration: none; cursor: pointer; }
   .btn.alt { background: #2d2d3a; }
@@ -22,8 +33,12 @@
     background-size: contain; background-position: center; background-repeat: no-repeat; }
   .card .cover:not(.img) { background-image: linear-gradient(135deg, rgba(255,255,255,.18), rgba(0,0,0,.35)); } /* tarjeta con título si no hay carátula */
   .card .cover.img { background-color: #111118; font-size: 0; }
-  .card .pic { position: absolute; top: 6px; left: 6px; width: 32px; height: 32px; border: 0; border-radius: 50%;
+  .card .pic, .card .inf { position: absolute; top: 6px; left: 6px; width: 32px; height: 32px; border: 0; border-radius: 50%;
     background: rgba(0,0,0,.5); color: #fff; font-size: 15px; }
+  .card .inf { left: 44px; }
+  #info .cov { width: 100%; height: 180px; background: #111118 center/contain no-repeat; border-radius: 10px; margin-bottom: 12px; }
+  #info dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; margin: 0 0 16px; }
+  #info dt { opacity: .6; }
   .card .name { padding: 10px; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .card .sys { padding: 0 10px 10px; font-size: 12px; opacity: .6; }
   .card .del { position: absolute; top: 6px; right: 6px; width: 32px; height: 32px; border: 0; border-radius: 50%;
@@ -41,7 +56,7 @@
   <!-- Un solo botón para todo: la consola se detecta sola por el contenido del archivo (detectSystem en db.js) -->
   <label id="add" class="btn">＋ Añadir juegos<input id="file" type="file" multiple hidden></label>
   <button id="folder" class="btn alt" hidden aria-label="Añadir carpeta de juegos (se revisa sola)">📁</button>
-  <button id="backup" class="btn alt" aria-label="Respaldo de partidas">💾</button>
+  <button id="backup" class="btn alt" aria-label="Ajustes y respaldo de partidas">⚙</button>
   <button id="install" class="btn alt" hidden>⬇ Instalar</button>
 </header>
 <div id="legal" hidden role="dialog" aria-modal="true" aria-labelledby="legal-t"><div>
@@ -53,12 +68,23 @@
   <button id="legal-ok" class="btn" style="width:100%">Entendido</button>
 </div></div>
 <div id="bk" class="modal" hidden role="dialog" aria-modal="true" aria-labelledby="bk-t"><div>
-  <h2 id="bk-t">💾 Respaldo de partidas</h2>
+  <h2 id="bk-t">⚙ Ajustes</h2>
+  <label style="display:flex;gap:10px;align-items:center;margin-bottom:16px;font-size:16px">
+    <input id="dnd" type="checkbox" style="width:22px;height:22px"> 🔕 No molestar mientras juego
+  </label>
+  <h3 style="margin:0 0 6px">💾 Respaldo de partidas</h3>
   <p>Guarda en un archivo todas tus partidas: consolas, Flash, PSP, DS y los "Continuar". Las ROMs no se incluyen.</p>
   <button id="bk-exp" class="btn" style="width:100%;margin-bottom:10px">⬆ Exportar respaldo</button>
   <button id="bk-imp" class="btn alt" style="width:100%;margin-bottom:10px">⬇ Importar respaldo</button>
   <p style="opacity:.7;font-size:14px">Al importar en un móvil nuevo, añade antes tus juegos para recuperar también el "Continuar donde lo dejaste".</p>
   <button id="bk-close" class="btn alt" style="width:100%">Cerrar</button>
+</div></div>
+<div id="info" class="modal" hidden role="dialog" aria-modal="true" aria-labelledby="info-t"><div>
+  <div class="cov"></div>
+  <h2 id="info-t"></h2>
+  <dl></dl>
+  <a id="info-play" class="btn" style="display:block;text-align:center;margin-bottom:10px">▶ Jugar</a>
+  <button id="info-close" class="btn alt" style="width:100%">Cerrar</button>
 </div></div>
 <div id="grid"></div>
 <input id="picfile" type="file" accept="image/*" hidden>
@@ -93,7 +119,8 @@
         g.system === "nds" ? RV.launchDs(g.uri, g.fileName) : RV.launchPsp(g.uri);
       };
       a.innerHTML = `<div class="cover" style="background-color:${s.color}"></div><div class="name"></div><div class="sys"></div>
-        <button class="pic" aria-label="Cambiar carátula">🖼</button><button class="del" aria-label="Quitar de la biblioteca">✕</button>`;
+        <button class="pic" aria-label="Cambiar carátula">🖼</button><button class="inf" aria-label="Ficha del juego">ⓘ</button>
+        <button class="del" aria-label="Quitar de la biblioteca">✕</button>`;
       const cover = a.querySelector(".cover");
       if (g.cover) {
         const u = URL.createObjectURL(g.cover); urls.push(u);
@@ -103,6 +130,7 @@
       a.querySelector(".sys").textContent = s.name;
       // stopPropagation: en PSP la tarjeta tiene onclick (lanzar juego) y el toque llegaría hasta ella
       a.querySelector(".pic").onclick = e => { e.preventDefault(); e.stopPropagation(); picFor = g; $("#picfile").click(); };
+      a.querySelector(".inf").onclick = e => { e.preventDefault(); e.stopPropagation(); showInfo(g, a); };
       a.querySelector(".del").onclick = async e => {
         e.preventDefault(); e.stopPropagation();
         if (confirm(`¿Quitar "${g.name}" de la biblioteca?`)) {
@@ -123,6 +151,24 @@
     }
   }
   let searching = false;
+
+  // --- Ficha del juego (ⓘ): carátula, consola y datos de libretro-database (se guardan para verlos sin internet) ---
+  async function showInfo(g, card) {
+    $("#info-t").textContent = g.name;
+    $("#info .cov").style.backgroundImage = card.querySelector(".cover").style.backgroundImage;
+    const row = (k, v) => `<dt>${k}</dt><dd>${v}</dd>`;
+    const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+    const fill = info => $("#info dl").innerHTML = row("Consola", esc(SYSTEMS[g.system].name)) + (info
+      ? [["Año", info.year], ["Desarrollador", info.developer], ["Editor", info.publisher], ["Género", info.genre]]
+          .filter(([, v]) => v).map(([k, v]) => row(k, esc(v))).join("")
+      : row("Datos", navigator.onLine ? "No encontrados (homebrew o nombre poco común)" : "Conéctate a internet para buscarlos"));
+    $("#info-play").href = card.getAttribute("href");
+    $("#info-play").onclick = e => { $("#info").hidden = true; card.onclick?.(e); };
+    $("#info dl").innerHTML = row("Consola", esc(SYSTEMS[g.system].name)) + row("Datos", "⏳ Buscando…");
+    $("#info").hidden = false; $("#info-play").focus();
+    fill(await gameInfo(g).catch(() => null));
+  }
+  $("#info-close").onclick = () => $("#info").hidden = true;
 
   // Carátula manual (botón 🖼): cualquier imagen del teléfono
   let picFor = null;
@@ -165,6 +211,17 @@
   }
 
   window.RV?.orientation("any"); // la biblioteca gira libremente (vertical u horizontal)
+  window.RV?.dnd(false);         // fuera del juego: notificaciones normales
+  // No molestar (opcional): pedir el permiso de Android si hace falta
+  $("#dnd").checked = localStorage.getItem("rvDnd") === "1";
+  $("#dnd").onchange = e => {
+    if (!window.RV) { e.target.checked = false; return alert("Solo disponible en la app Android."); }
+    if (e.target.checked && !RV.dndAllowed()) {
+      alert("Android necesita que permitas a RetroVault controlar el modo No molestar.\nSe abrirá Ajustes: activa RetroVault y vuelve.");
+      RV.dndRequest();
+    }
+    localStorage.setItem("rvDnd", e.target.checked ? "1" : "0");
+  };
   // Aviso legal: solo la primera vez
   if (!localStorage.getItem("rvLegal")) { $("#legal").hidden = false; $("#legal-ok").focus(); }
   $("#legal-ok").onclick = () => { localStorage.setItem("rvLegal", "1"); $("#legal").hidden = true; };

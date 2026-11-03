@@ -13,14 +13,16 @@ index 910f322..6625d1b 100644
 +	target_link_libraries(rvlibretro android log dl)
 +endif()
 diff --git a/android/AndroidManifest.xml b/android/AndroidManifest.xml
-index 8bdf525..a42ac5d 100644
+index 8bdf525..df79aa9 100644
 --- a/android/AndroidManifest.xml
 +++ b/android/AndroidManifest.xml
-@@ -40,16 +40,38 @@
+@@ -40,16 +40,40 @@
          android:normalScreens="true"
          android:smallScreens="true"
          android:xlargeScreens="true" />
 +    <uses-permission android:name="android.permission.VIBRATE" />
++    <!-- RetroVault: modo No molestar opcional mientras se juega -->
++    <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
      <application
          android:allowBackup="true"
 -        android:icon="@mipmap/ic_launcher"
@@ -57,7 +59,7 @@ index 8bdf525..a42ac5d 100644
          <activity
              android:name=".PpssppActivity"
              android:configChanges="locale|keyboard|keyboardHidden|navigation|uiMode"
-@@ -57,12 +79,6 @@
+@@ -57,12 +81,6 @@
  			android:launchMode="singleInstance"
              android:exported="true">
              <property android:name="android.window.PROPERTY_COMPAT_ALLOW_RESTRICTED_RESIZABILITY" android:value="true" />

@@ -121,6 +121,18 @@ public class MainActivity extends Activity {
             }
 
             // Carpetas de juegos: el usuario elige una (permiso permanente) y la app la recorre buscando juegos
+            // No molestar durante el juego (opcional). Android exige que el usuario conceda el permiso una vez.
+            @JavascriptInterface
+            public boolean dndAllowed() { return nm().isNotificationPolicyAccessGranted(); }
+
+            @JavascriptInterface
+            public void dndRequest() {
+                runOnUiThread(() -> startActivity(new Intent(android.provider.Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS)));
+            }
+
+            @JavascriptInterface
+            public void dnd(boolean on) { runOnUiThread(() -> { dndWanted = on; setDnd(on); }); }
+
             @JavascriptInterface
             public void pickFolder() {
                 startActivityForResult(new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE), PICK_FOLDER);
@@ -211,6 +223,7 @@ public class MainActivity extends Activity {
         if (p.endsWith(".json")) return "application/json";
         if (p.endsWith(".png")) return "image/png";
         if (p.endsWith(".svg")) return "image/svg+xml";
+        if (p.endsWith(".ttf")) return "font/ttf";
         return "application/octet-stream";
     }
 
@@ -354,19 +367,40 @@ public class MainActivity extends Activity {
         a.getWindow().setAttributes(lp);
     }
 
+    // No molestar: se guarda el modo que tenía el usuario y se restaura SIEMPRE al salir del juego o de la app
+    android.app.NotificationManager nm() { return (android.app.NotificationManager) getSystemService(NOTIFICATION_SERVICE); }
+    boolean dndWanted = false;
+    int prevFilter = -1;
+    void setDnd(boolean on) {
+        android.app.NotificationManager n = nm();
+        if (!n.isNotificationPolicyAccessGranted()) return;
+        if (on && prevFilter < 0) {
+            prevFilter = n.getCurrentInterruptionFilter();
+            n.setInterruptionFilter(android.app.NotificationManager.INTERRUPTION_FILTER_PRIORITY); // alarmas y prioritarios sí pasan
+        } else if (!on && prevFilter >= 0) {
+            n.setInterruptionFilter(prevFilter);
+            prevFilter = -1;
+        }
+    }
+
     // Segundo plano (llamada, mensaje, inicio): la web guarda y pausa el juego, y el WebView deja de ejecutar
     // JavaScript/temporizadores -> el emulador no consume CPU ni batería mientras no se ve
     @Override
     protected void onPause() {
         super.onPause();
         if (web != null) { web.evaluateJavascript("window.rvPause&&rvPause()", null); web.onPause(); web.pauseTimers(); }
+        setDnd(false); // fuera de la app: notificaciones como siempre
     }
 
     @Override
     protected void onResume() {
         super.onResume();
         if (web != null) { web.onResume(); web.resumeTimers(); web.evaluateJavascript("window.rvResume&&rvResume()", null); }
+        if (dndWanted) setDnd(true); // de vuelta en el juego
     }
+
+    @Override
+    protected void onDestroy() { setDnd(false); super.onDestroy(); }
 
     // ---------- Mandos físicos (Bluetooth / USB): cada mando es un jugador, en orden de primer uso ----------
     final java.util.List<Integer> pads = new java.util.ArrayList<>(); // id de dispositivo por jugador

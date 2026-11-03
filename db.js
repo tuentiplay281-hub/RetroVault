@@ -3,7 +3,7 @@ const SYSTEMS = {
   swf:    { name: "Flash",        color: "#e5533d" },
   nes:    { name: "NES",          color: "#c0392b" },
   snes:   { name: "Super NES",    color: "#6c5ce7" },
-  gba:    { name: "Game Boy",     color: "#2e86de" },
+  gba:    { name: "Game Boy / GBA", color: "#2e86de" }, // mGBA corre los tres (GB, GBC y GBA)
   segaMD: { name: "Sega Genesis", color: "#222f3e" },
   segaMS: { name: "Master System",color: "#10ac84" },
   segaGG: { name: "Game Gear",    color: "#576574" },
@@ -230,6 +230,46 @@ async function findCover(g) {
   }
   return null;
 }
+// --- Fichas de juego (desarrollador, editor, año, género) de libretro-database, buscadas por CRC de la ROM ---
+const CRC_TABLE = Array.from({ length: 256 }, (_, n) => { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; return c >>> 0; });
+function crc32(u8) { let c = 0xFFFFFFFF; for (let i = 0; i < u8.length; i++) c = CRC_TABLE[(c ^ u8[i]) & 255] ^ (c >>> 8); return ((c ^ 0xFFFFFFFF) >>> 0).toString(16).toUpperCase().padStart(8, "0"); }
+// Busca en un .dat de libretro: bloques  game ( comment "Nombre" <campo> "valor" rom ( crc XXXXXXXX ) )
+function datLookup(text, field, crc, names) {
+  const re = new RegExp(`comment "([^"]*)"\\s*${field} "([^"]*)"\\s*rom \\(([^)]*)\\)`, "g");
+  let byName = null;
+  for (const m of text.matchAll(re)) {
+    if (crc && new RegExp(`crc ${crc}\\b`, "i").test(m[3])) return m[2];
+    if (!byName && names.includes(m[1].toLowerCase())) byName = m[2];
+  }
+  return byName;
+}
+async function gameInfo(g) {
+  if (g.info) return g.info;
+  const ext = g.fileName.split(".").pop().toLowerCase();
+  const key = ["gba", "ngp", "ws"].includes(g.system) && COVER_REPO[ext] ? ext : g.system;
+  const repo = COVER_REPO[key];
+  if (!repo) return null; // Flash / Arcade: sin base de datos
+  let crc = null;
+  if (g.file && g.file.size <= 64 << 20) { // las ROMs de cartucho: CRC sin cabeceras añadidas (como No-Intro)
+    let data = new Uint8Array(await g.file.arrayBuffer());
+    if (g.system === "nes" && data[0] === 0x4E && data[1] === 0x45) data = data.subarray(16);   // cabecera iNES
+    if (g.system === "snes" && data.length % 1024 === 512) data = data.subarray(512);            // cabecera de copiadora
+    crc = crc32(data);
+  }
+  const bare = g.name.replace(/\s*[([][^)\]]*[)\]]/g, "").trim();
+  const names = [g.name, ...["USA", "USA, Europe", "World", "Europe", "Japan"].map(r => `${bare} (${r})`)].map(n => n.toLowerCase());
+  const sys = encodeURIComponent(repo.replace(/_/g, " "));
+  const info = {};
+  await Promise.all([["developer", "developer"], ["publisher", "publisher"], ["releaseyear", "year"], ["genre", "genre"]].map(async ([f, k]) => {
+    const r = await fetch(`https://raw.githubusercontent.com/libretro/libretro-database/master/metadat/${f}/${sys}.dat`);
+    if (r.ok) info[k] = datLookup(await r.text(), f, crc, names);
+  }));
+  if (!Object.values(info).some(Boolean)) return null;
+  const cur = await games.get(g.id); // guardar la ficha: luego se ve sin internet
+  if (cur) await games.put({ ...cur, info });
+  return info;
+}
+
 // --- Icono incluido en el propio juego (si no hay carátula oficial; funciona sin internet) ---
 // Lector de bytes de un juego: archivo guardado (web) o archivo del teléfono vía la app Android (PSP/DS)
 function readerFor(g) {

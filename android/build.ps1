@@ -49,6 +49,7 @@ $DIST = "$ROOT\dist"; $NPM = "$OUT\npm"
 Remove-Item -Recurse -Force $OUT, $DIST -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force $DIST, $NPM | Out-Null
 Copy-Item "$ROOT\index.html", "$ROOT\play.html", "$ROOT\db.js", "$ROOT\sw.js", "$ROOT\manifest.json", "$ROOT\icon.svg", "$ROOT\icon-192.png", "$ROOT\icon-512.png" $DIST
+Copy-Item "$ROOT\fonts" "$DIST\fonts" -Recurse   # tipografía retro (Press Start 2P, OFL)
 
 # Ruffle (Flash) y EmulatorJS (consolas) dentro de la app para no necesitar internet
 $CORES = "fceumm", "snes9x", "mgba", "genesis_plus_gx", "smsplus",   # NES, SNES, GB/GBA, Genesis/Game Gear, Master System
@@ -109,7 +110,7 @@ if (-not (Test-Path $KS)) {
 }
 Write-Host "Compilando RetroVault + PPSSPP..."
 Push-Location $PP
-Run .\gradlew.bat --no-daemon ":android:assembleNormalRelease" "-PRELEASE_STORE_FILE=$KS" "-PRELEASE_STORE_PASSWORD=jugarswf" "-PRELEASE_KEY_ALIAS=jugarswf" "-PRELEASE_KEY_PASSWORD=jugarswf" "-PANDROID_VERSION_CODE=9" "-PANDROID_VERSION_NAME=3.6"
+Run .\gradlew.bat --no-daemon ":android:assembleNormalRelease" "-PRELEASE_STORE_FILE=$KS" "-PRELEASE_STORE_PASSWORD=jugarswf" "-PRELEASE_KEY_ALIAS=jugarswf" "-PRELEASE_KEY_PASSWORD=jugarswf" "-PANDROID_VERSION_CODE=11" "-PANDROID_VERSION_NAME=3.8"
 Pop-Location
 $apk = Get-ChildItem "$PA\build\outputs\apk\normal\release\*.apk" | Sort-Object LastWriteTime | Select-Object -Last 1
 if (-not $apk) { throw "No se generó el APK" }
