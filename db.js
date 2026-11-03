@@ -212,6 +212,49 @@ const COVER_REPO = { nes: "Nintendo_-_Nintendo_Entertainment_System", snes: "Nin
   pce: "NEC_-_PC_Engine_-_TurboGrafx_16", atari2600: "Atari_-_2600", atari7800: "Atari_-_7800", lynx: "Atari_-_Lynx",
   ngp: "SNK_-_Neo_Geo_Pocket", ngc: "SNK_-_Neo_Geo_Pocket_Color", ws: "Bandai_-_WonderSwan", wsc: "Bandai_-_WonderSwan_Color" };
 // Arcade no tiene: las ROMs se llaman por código (sf2.zip) y las carátulas por título completo
+// --- Número de serie de discos PS1/PSP -> nombre oficial (libretro-database), para la carátula ---
+const SERIAL_DB = { psx: "metadat/redump/Sony - PlayStation.dat", psp: "metadat/serial/Sony - PlayStation Portable.dat" };
+const serialMaps = {}; // una descarga por sesión y consola
+// "SLUS_005.94" / "ULUS10041" / "SLUS-00594" -> "SLUS-00594" (formato de la base de datos)
+const normSerial = s => { const m = s && s.match(/([A-Z]{4})[_-]?(\d{3})\.?(\d{2})/); return m ? `${m[1]}-${m[2]}${m[3]}` : null; };
+// Lee los primeros bytes de un archivo de la raíz de una imagen ISO 9660 (ISO normal o .bin de 2352 bytes/sector)
+async function isoRootFile(read, name, len) {
+  for (const pvdOff of [0x8000, 0x9310, 0x9318]) {
+    const pvd = await read(pvdOff, 190);
+    if (String.fromCharCode(...pvd.subarray(1, 6)) !== "CD001") continue;
+    const ss = pvdOff === 0x8000 ? 2048 : 2352, at = lba => lba * ss + pvdOff - 16 * ss;
+    const dir = await read(at(le32at(pvd, 158)), 2048);
+    for (let p = 0; p + 33 < dir.length && dir[p]; p += dir[p])
+      if (String.fromCharCode(...dir.subarray(p + 33, p + 33 + dir[p + 32])).toUpperCase().startsWith(name)) return read(at(le32at(dir, p + 2)), len);
+    return null;
+  }
+  return null;
+}
+async function discSerial(g) {
+  const read = readerFor(g);
+  if (!read) return null;
+  const h = await read(0, 0x10), txt = b => b ? String.fromCharCode(...b) : "";
+  if (txt(h.subarray(0, 4)) === "\0PBP") return normSerial(txt(await read(le32at(h, 0x08), 0x800)).match(/[A-Z]{4}\d{5}/)?.[0]); // DISC_ID del PARAM.SFO
+  if (g.system === "psp") return normSerial(txt(await isoRootFile(read, "UMD_DATA.BIN", 16)));              // "ULUS-10041|..."
+  return normSerial(txt(await isoRootFile(read, "SYSTEM.CNF", 128)).match(/BOOT\s*=\s*cdrom:\\?([^;\s]+)/i)?.[1]); // PS1
+}
+async function serialName(g) {
+  const serial = await discSerial(g).catch(() => null);
+  if (!serial) return null;
+  serialMaps[g.system] ??= fetch("https://raw.githubusercontent.com/libretro/libretro-database/master/" + encodeURI(SERIAL_DB[g.system]))
+    .then(r => { if (!r.ok) throw new Error("base de datos " + r.status); return r.text(); })
+    .then(text => {
+      const map = new Map();
+      for (const [, body] of text.matchAll(/game \(([\s\S]*?)\n\)/g)) {
+        const name = body.match(/(?:name|comment) "([^"]*)"/)?.[1], ser = body.match(/serial "([^"]*)"/)?.[1];
+        if (name && ser) for (const s of ser.split(/,\s*/)) if (!map.has(s)) map.set(s, name);
+      }
+      return map;
+    })
+    .catch(e => { delete serialMaps[g.system]; throw e; }); // sin red: reintentar la próxima vez
+  return (await serialMaps[g.system]).get(serial) || null;
+}
+
 async function findCover(g) {
   const ext = g.fileName.split(".").pop().toLowerCase();
   // gb/gbc/gba, ngp/ngc y ws/wsc comparten emulador pero no carátulas: se decide por la extensión
@@ -223,7 +266,9 @@ async function findCover(g) {
   // Los archivos se llaman como No-Intro, p.ej. "Super Mario World (USA)". Probamos el nombre tal cual y con regiones típicas.
   const base = g.name.replace(/\s*\[[^\]]*\]/g, "").trim();         // quita etiquetas tipo [!]
   const bare = base.replace(/\s*\([^)]*\)/g, "").trim();             // sin "(USA)" etc.
-  const names = [...new Set([base, ...["USA", "USA, Europe", "World", "Europe", "Japan", "USA, Canada"].map(r => `${bare} (${r})`), bare])];
+  // PS1/PSP: el número de serie del disco da el nombre oficial aunque el archivo esté renombrado; se prueba primero
+  const official = SERIAL_DB[g.system] ? await serialName(g) : null;
+  const names = [...new Set([official, base, ...["USA", "USA, Europe", "World", "Europe", "Japan", "USA, Canada"].map(r => `${bare} (${r})`), bare].filter(Boolean))];
   for (const repo of repos) for (const n of names) {
     const file = n.replace(/[&*/:`<>?\\|"]/g, "_"); // libretro reemplaza estos caracteres por _
     // fetch solo lanza error si no hay red; un 404 (no existe esa carátula) es r.ok = false
@@ -322,13 +367,14 @@ async function gameIcon(g) {
 
 // Busca la carátula una sola vez por juego (coverTried) para no repetir descargas fallidas
 async function ensureCover(g) {
-  if (g.cover || g.coverTried) return false;
+  // coverTried 2 = buscada ya con número de serie; los PS1/PSP buscados antes (true) se reintentan una vez
+  if (g.cover || g.coverTried === 2 || (g.coverTried && !SERIAL_DB[g.system])) return false;
   let cover = null;
   if (navigator.onLine) try { cover = await findCover(g); } catch { return false; } // sin red a mitad: no marcar, se reintenta
   if (!cover) cover = await gameIcon(g); // sin carátula oficial: el icono del propio juego (DS/PSP)
   if (!cover && !navigator.onLine) return false; // offline y sin icono: reintentar cuando haya internet
   const cur = await games.get(g.id); // releer: pudo borrarse o recibir carátula manual mientras buscábamos
   if (!cur || cur.cover) return false;
-  await games.put({ ...cur, cover, coverTried: true });
+  await games.put({ ...cur, cover, coverTried: 2 });
   return !!cover;
 }
