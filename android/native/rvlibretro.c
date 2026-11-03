@@ -106,9 +106,14 @@ static int16_t input_state(unsigned port, unsigned device, unsigned index, unsig
   int b = buttons | latched_buttons;
   if (device == RETRO_DEVICE_JOYPAD) return id == RETRO_DEVICE_ID_JOYPAD_MASK ? (int16_t)b : (b >> id) & 1;
   if (device == RETRO_DEVICE_POINTER) {
+    int touching = ptr_down | latched_touch;
+    if (index > 0) return 0; // un solo dedo
     if (id == RETRO_DEVICE_ID_POINTER_X) return ptr_x;
     if (id == RETRO_DEVICE_ID_POINTER_Y) return ptr_y;
-    if (id == RETRO_DEVICE_ID_POINTER_PRESSED) return ptr_down | latched_touch;
+    if (id == RETRO_DEVICE_ID_POINTER_PRESSED) return touching;
+    // melonDS DS mira cuántos dedos hay antes de aceptar la pulsación: sin esto movía el cursor pero no "tocaba"
+    if (id == RETRO_DEVICE_ID_POINTER_COUNT) return touching ? 1 : 0;
+    if (id == RETRO_DEVICE_ID_POINTER_IS_OFFSCREEN) return 0;
   }
   return 0;
 }
