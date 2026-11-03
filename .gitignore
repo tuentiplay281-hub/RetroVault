@@ -12,3 +12,15 @@ android/build.log
 # Wrangler / Node
 .wrangler/
 node_modules/
+
+# Juegos y BIOS de prueba: nunca al repositorio (pesan GB y tienen derechos de autor)
+juego/
+*.iso
+*.chd
+*.cso
+ps2-bios-usa/
+*.BIN
+*.ROM0
+*.ROM1
+*.NVM
+*.MEC
