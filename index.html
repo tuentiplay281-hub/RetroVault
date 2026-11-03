@@ -107,7 +107,9 @@
   let urls = [];
   async function render() {
     urls.forEach(URL.revokeObjectURL); urls = [];
-    const list = (await games.all()).sort((a, b) => a.name.localeCompare(b.name));
+    const all = await games.all();
+    for (const g of all.filter(g => isBackup(g.fileName))) await games.del(g.id); // la v3.11 los añadía como juego Arcade
+    const list = all.filter(g => !isBackup(g.fileName)).sort((a, b) => a.name.localeCompare(b.name));
     $("#empty").hidden = list.length > 0;
     $("#grid").replaceChildren(...list.map(g => {
       const s = SYSTEMS[g.system];
@@ -116,6 +118,7 @@
       if (g.uri) a.onclick = e => { // PSP / DS: emuladores nativos de la app Android
         e.preventDefault();
         if (!window.RV) return alert(s.name + " solo funciona en la app Android");
+        RV.dnd(localStorage.getItem("rvDnd") === "1"); // No molestar también en PSP/DS
         g.system === "nds" ? RV.launchDs(g.uri, g.fileName) : RV.launchPsp(g.uri);
       };
       a.innerHTML = `<div class="cover" style="background-color:${s.color}"></div><div class="name"></div><div class="sys"></div>
@@ -265,6 +268,7 @@
     let scanQueue = Promise.resolve(); // varias carpetas: procesarlas de una en una para no duplicar
     window.rvScanned = (tree, files) => scanQueue = scanQueue.then(() => onScanned(tree, files)).catch(() => {});
     const onScanned = async (tree, files) => {
+      files = files.filter(f => !isBackup(f.name)); // los respaldos no son juegos
       // Ya en la biblioteca, o quitados a propósito por el usuario: no volver a añadirlos
       const have = new Set([...(await games.all()).map(g => g.fileName.toLowerCase()), ...JSON.parse(localStorage.getItem("rvIgnored") || "[]")]);
       const nuevos = files.filter(f => !have.has(f.name.toLowerCase()) && have.add(f.name.toLowerCase())); // también sin duplicados dentro

@@ -12,6 +12,34 @@ index 910f322..6625d1b 100644
 +	add_library(rvlibretro SHARED android/rv-native/rvlibretro.c)
 +	target_link_libraries(rvlibretro android log dl)
 +endif()
+diff --git a/Core/Config.cpp b/Core/Config.cpp
+index e7fd30d..7896a5c 100644
+--- a/Core/Config.cpp
++++ b/Core/Config.cpp
+@@ -341,7 +341,7 @@ static const ConfigSetting generalSettings[] = {
+ 
+ 	ConfigSetting("PauseWhenMinimized", SETTING(g_Config, bPauseWhenMinimized), false, CfgFlag::PER_GAME),
+ 	ConfigSetting("PauseExitsEmulator", SETTING(g_Config, bPauseExitsEmulator), false, CfgFlag::DONT_SAVE),
+-	ConfigSetting("PauseMenuExitsEmulator", SETTING(g_Config, bPauseMenuExitsEmulator), false, CfgFlag::DONT_SAVE),
++	ConfigSetting("PauseMenuExitsEmulator", SETTING(g_Config, bPauseMenuExitsEmulator), true, CfgFlag::DONT_SAVE),
+ 
+ 	ConfigSetting("DumpFileTypes", SETTING(g_Config, iDumpFileTypes), 0, CfgFlag::PER_GAME),
+ 
+diff --git a/UI/EmuScreen.cpp b/UI/EmuScreen.cpp
+index b294842..9a9a463 100644
+--- a/UI/EmuScreen.cpp
++++ b/UI/EmuScreen.cpp
+@@ -1535,6 +1535,10 @@ bool EmuScreen::checkPowerDown() {
+ 	// Also for REQUEST_STOP.
+ 	if (coreState == CORE_POWERDOWN && PSP_GetBootState() == BootState::Complete && !bootPending_) {
+ 		INFO_LOG(Log::System, "SELF-POWERDOWN!");
++		if (g_Config.bPauseMenuExitsEmulator) {  // RetroVault: el juego se cerro solo -> volver a la biblioteca
++			System_ExitApp();
++			return true;
++		}
+ 		screenManager()->switchScreen(new MainScreen());
+ 		return true;
+ 	}
 diff --git a/android/AndroidManifest.xml b/android/AndroidManifest.xml
 index 8bdf525..df79aa9 100644
 --- a/android/AndroidManifest.xml

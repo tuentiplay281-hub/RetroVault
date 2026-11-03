@@ -59,6 +59,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle b) {
         super.onCreate(b);
+        pspMemstick();
         // Inspección remota (chrome://inspect) solo con las opciones de desarrollador del móvil activadas
         WebView.setWebContentsDebuggingEnabled(android.provider.Settings.Global.getInt(getContentResolver(),
             android.provider.Settings.Global.DEVELOPMENT_SETTINGS_ENABLED, 0) == 1);
@@ -80,8 +81,8 @@ public class MainActivity extends Activity {
         web.addJavascriptInterface(new Object() {
             @JavascriptInterface
             public void launchDs(String uri, String name) {
-                runOnUiThread(() -> startActivity(new Intent(MainActivity.this, DsActivity.class)
-                    .putExtra("uri", uri).putExtra("name", name)));
+                runOnUiThread(() -> { nativeGame = true; startActivity(new Intent(MainActivity.this, DsActivity.class)
+                    .putExtra("uri", uri).putExtra("name", name)); });
             }
 
             // Lee 'len' bytes desde 'offset' de un archivo del teléfono (base64). La web lo usa para detectar la consola
@@ -163,6 +164,7 @@ public class MainActivity extends Activity {
                         Intent i = new Intent(Intent.ACTION_VIEW, Uri.parse(uri));
                         i.setClassName(MainActivity.this, "org.ppsspp.ppsspp.PpssppActivity");
                         i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                        nativeGame = true;
                         startActivity(i);
                     } catch (Exception e) {
                         Toast.makeText(MainActivity.this, "No se pudo abrir el juego de PSP", Toast.LENGTH_LONG).show();
@@ -265,6 +267,17 @@ public class MainActivity extends Activity {
             if (size <= 0) try (android.os.ParcelFileDescriptor pfd = getContentResolver().openFileDescriptor(u, "r")) { size = pfd.getStatSize(); } catch (Exception e) { }
             web.evaluateJavascript("rvNativePicked(" + JSONObject.quote(u.toString()) + "," + JSONObject.quote(name) + "," + size + ")", null);
         }
+    }
+
+    // PPSSPP en Android 11+ no tiene carpeta de partidas por defecto (pregunta en una pantalla que RetroVault se salta):
+    // sin esto las partidas de PSP no se guardaban. Usamos la carpeta privada de la app, la misma que va en el respaldo.
+    void pspMemstick() {
+        java.io.File ext = getExternalFilesDir(null), txt = new java.io.File(getFilesDir(), "memstick_dir.txt");
+        if (ext == null) return;
+        for (String d : new String[] { "PSP/SYSTEM", "PSP/SAVEDATA", "PSP/PPSSPP_STATE" }) new java.io.File(ext, d).mkdirs();
+        if (txt.exists()) return; // el usuario ya eligió carpeta en PPSSPP: respetarla
+        try (java.io.FileOutputStream o = new java.io.FileOutputStream(txt)) { o.write(ext.getAbsolutePath().getBytes("UTF-8")); }
+        catch (java.io.IOException e) { /* PPSSPP pedirá la carpeta él mismo */ }
     }
 
     // Carpetas nativas que entran en el respaldo: partidas/estados del DS y de PPSSPP (memstick por defecto de la app)
@@ -391,7 +404,7 @@ public class MainActivity extends Activity {
 
     // No molestar: se guarda el modo que tenía el usuario y se restaura SIEMPRE al salir del juego o de la app
     android.app.NotificationManager nm() { return (android.app.NotificationManager) getSystemService(NOTIFICATION_SERVICE); }
-    boolean dndWanted = false;
+    boolean dndWanted = false, nativeGame = false;
     int prevFilter = -1;
     void setDnd(boolean on) {
         android.app.NotificationManager n = nm();
@@ -411,14 +424,16 @@ public class MainActivity extends Activity {
     protected void onPause() {
         super.onPause();
         if (web != null) { web.evaluateJavascript("window.rvPause&&rvPause()", null); web.onPause(); web.pauseTimers(); }
-        setDnd(false); // fuera de la app: notificaciones como siempre
+        // shortcut: si sales al inicio desde PSP/DS, No molestar sigue hasta volver a RetroVault (otra actividad, no la vemos)
+        if (!nativeGame) setDnd(false); // fuera de la app: notificaciones como siempre
     }
 
     @Override
     protected void onResume() {
         super.onResume();
         if (web != null) { web.onResume(); web.resumeTimers(); web.evaluateJavascript("window.rvResume&&rvResume()", null); }
-        if (dndWanted) setDnd(true); // de vuelta en el juego
+        if (nativeGame) { nativeGame = false; dndWanted = false; } // de vuelta de PSP/DS: estamos en la biblioteca
+        setDnd(dndWanted); // de vuelta en el juego web, o fuera de él
     }
 
     @Override

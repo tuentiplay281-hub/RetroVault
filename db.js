@@ -29,6 +29,7 @@ const EXT = { swf: "swf", nes: "nes", smc: "snes", sfc: "snes", gb: "gba", gbc: 
 // Extensiones que pueden ser de varias consolas: se pregunta al añadir (EmulatorJS descomprime .zip/.7z solo)
 const AMBIGUOUS = { zip: ["arcade", "psx", "nes", "snes", "gba", "segaMD", "n64"], "7z": ["psx", "nes", "snes", "gba", "segaMD", "n64"],
   bin: ["psx", "segaMD", "atari2600"] };
+const isBackup = fileName => /^RetroVault-respaldo.*\.zip$/i.test(fileName); // .zip de respaldo de RetroVault
 const systemOf = fileName => EXT[fileName.split(".").pop().toLowerCase()];
 const choicesOf = fileName => AMBIGUOUS[fileName.split(".").pop().toLowerCase()];
 
@@ -103,6 +104,7 @@ async function detectZip(size, read) {
       for (let p = 0, k = 0; k < n && p + 46 <= cd.length; k++) {
         const nameLen = cd[p + 28] | cd[p + 29] << 8, extra = cd[p + 30] | cd[p + 31] << 8, comment = cd[p + 32] | cd[p + 33] << 8;
         const inner = String.fromCharCode(...cd.subarray(p + 46, p + 46 + nameLen));
+        if (inner === "web.json") return null; // respaldo de RetroVault, no un juego
         const sys = EXT[inner.split(".").pop().toLowerCase()];
         if (sys && sys !== "swf") return sys;
         p += 46 + nameLen + extra + comment;
