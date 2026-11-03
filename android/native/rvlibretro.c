@@ -34,6 +34,8 @@ static ANativeWindow *window; static pthread_mutex_t win_lock = PTHREAD_MUTEX_IN
 static int win_w, win_h;
 static volatile int buttons;                 // máscara RETRO_DEVICE_ID_JOYPAD_*
 static volatile int ptr_x, ptr_y, ptr_down;  // táctil, en coordenadas libretro (-0x7fff..0x7fff)
+// Pulsaciones "recordadas" hasta el siguiente frame: un toque rápido (50 ms) entre dos frames no se pierde
+static volatile int latched_buttons, latched_touch;
 static int16_t audio_buf[48000];             // estéreo intercalado; se vacía en cada frame
 static size_t audio_len;
 static double sample_rate = 32768;
@@ -101,11 +103,12 @@ static void audio_sample(int16_t l, int16_t r) { int16_t s[2] = {l, r}; audio_ba
 static void poll(void) {}
 static int16_t input_state(unsigned port, unsigned device, unsigned index, unsigned id) {
   if (port != 0) return 0;
-  if (device == RETRO_DEVICE_JOYPAD) return id == RETRO_DEVICE_ID_JOYPAD_MASK ? (int16_t)buttons : (buttons >> id) & 1;
+  int b = buttons | latched_buttons;
+  if (device == RETRO_DEVICE_JOYPAD) return id == RETRO_DEVICE_ID_JOYPAD_MASK ? (int16_t)b : (b >> id) & 1;
   if (device == RETRO_DEVICE_POINTER) {
     if (id == RETRO_DEVICE_ID_POINTER_X) return ptr_x;
     if (id == RETRO_DEVICE_ID_POINTER_Y) return ptr_y;
-    if (id == RETRO_DEVICE_ID_POINTER_PRESSED) return ptr_down;
+    if (id == RETRO_DEVICE_ID_POINTER_PRESSED) return ptr_down | latched_touch;
   }
   return 0;
 }
@@ -168,6 +171,7 @@ out:
 JNIEXPORT jint JNICALL Java_com_jugarswf_DsActivity_nativeRunFrame(JNIEnv *e, jclass c, jshortArray out) {
   audio_len = 0;
   c_run();
+  latched_buttons = 0; latched_touch = 0; // el juego ya las vio en este frame
   jsize cap = (*e)->GetArrayLength(e, out);
   jint n = audio_len < (size_t)cap ? (jint)audio_len : cap;
   (*e)->SetShortArrayRegion(e, out, 0, n, audio_buf);
@@ -183,6 +187,7 @@ JNIEXPORT void JNICALL Java_com_jugarswf_DsActivity_nativeSetSurface(JNIEnv *e, 
 
 JNIEXPORT void JNICALL Java_com_jugarswf_DsActivity_nativeInput(JNIEnv *e, jclass c, jint mask, jint x, jint y, jint down) {
   buttons = mask; ptr_x = x; ptr_y = y; ptr_down = down;
+  latched_buttons |= mask; if (down) latched_touch = 1;
 }
 
 JNIEXPORT void JNICALL Java_com_jugarswf_DsActivity_nativeSave(JNIEnv *e, jclass c) { sram_io(true); }

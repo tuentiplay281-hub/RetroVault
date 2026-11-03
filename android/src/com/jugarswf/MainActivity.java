@@ -59,8 +59,14 @@ public class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle b) {
         super.onCreate(b);
+        // Inspección remota (chrome://inspect) solo con las opciones de desarrollador del móvil activadas
+        WebView.setWebContentsDebuggingEnabled(android.provider.Settings.Global.getInt(getContentResolver(),
+            android.provider.Settings.Global.DEVELOPMENT_SETTINGS_ENABLED, 0) == 1);
         web = new WebView(this);
         WebSettings s = web.getSettings();
+        // Android 13+ (y obligatorio con targetSdk 36): el botón atrás llega por OnBackInvokedDispatcher, no por onBackPressed
+        if (android.os.Build.VERSION.SDK_INT >= 33)
+            getOnBackInvokedDispatcher().registerOnBackInvokedCallback(android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT, this::goBack);
         s.setJavaScriptEnabled(true);
         s.setDomStorageEnabled(true);
         s.setMediaPlaybackRequiresUserGesture(false);
@@ -198,6 +204,22 @@ public class MainActivity extends Activity {
         });
 
         web.setWebChromeClient(new WebChromeClient() {
+            // Avisos y confirmaciones con el título "RetroVault" en vez de "La página https://appassets.local dice"
+            @Override
+            public boolean onJsAlert(WebView v, String url, String msg, android.webkit.JsResult r) {
+                new android.app.AlertDialog.Builder(MainActivity.this).setTitle("RetroVault").setMessage(msg)
+                    .setPositiveButton("Aceptar", (d, w) -> r.confirm()).setOnCancelListener(d -> r.confirm()).show();
+                return true;
+            }
+
+            @Override
+            public boolean onJsConfirm(WebView v, String url, String msg, android.webkit.JsResult r) {
+                new android.app.AlertDialog.Builder(MainActivity.this).setTitle("RetroVault").setMessage(msg)
+                    .setPositiveButton("Aceptar", (d, w) -> r.confirm()).setNegativeButton("Cancelar", (d, w) -> r.cancel())
+                    .setOnCancelListener(d -> r.cancel()).show();
+                return true;
+            }
+
             @Override
             public boolean onShowFileChooser(WebView v, ValueCallback<Uri[]> cb, FileChooserParams p) {
                 if (pick != null) pick.onReceiveValue(null);
@@ -481,8 +503,10 @@ public class MainActivity extends Activity {
     }
 
     @Override
-    public void onBackPressed() {
-        // En un juego: pulsa la flecha ← de la página (guarda la partida y vuelve). En la biblioteca: salir.
+    public void onBackPressed() { goBack(); } // Android 12 o anterior
+
+    // En un juego: pulsa la flecha ← de la página (guarda la partida y vuelve). En la biblioteca: salir.
+    void goBack() {
         web.evaluateJavascript("(function(){var b=document.getElementById('back');if(b){b.click();return 1}return 0})()",
             r -> { if (!"1".equals(r)) finish(); });
     }

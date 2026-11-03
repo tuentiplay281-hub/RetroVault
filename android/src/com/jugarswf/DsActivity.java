@@ -192,7 +192,7 @@ public class DsActivity extends Activity {
             int sr = (int) Math.round(rate);
             int min = AudioTrack.getMinBufferSize(sr, AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_16BIT);
             track = new AudioTrack(AudioManager.STREAM_MUSIC, sr, AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_16BIT,
-                Math.max(min * 2, sr / 5 * 4), AudioTrack.MODE_STREAM);
+                min * 2, AudioTrack.MODE_STREAM); // búfer pequeño: el emulador avanza en ráfagas cortas (menos retraso de los controles)
             track.play();
             short[] audio = new short[16384];
             long frames = 0;
